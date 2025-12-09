@@ -73,6 +73,51 @@ export async function testConnection(secret) {
 }
 
 /**
+ * Integration에 공유된 모든 데이터베이스 목록 조회
+ * @param {string} secret
+ * @returns {Promise<Array<{id: string, title: string, icon: string|null}>>}
+ */
+export async function listDatabases(secret) {
+  try {
+    const allDatabases = [];
+    let cursor = null;
+
+    do {
+      const body = {
+        filter: {
+          value: 'database',
+          property: 'object'
+        },
+        page_size: 100
+      };
+
+      if (cursor) {
+        body.start_cursor = cursor;
+      }
+
+      const response = await notionRequest('/search', secret, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+
+      allDatabases.push(...response.results);
+
+      if (!response.has_more) break;
+      cursor = response.next_cursor;
+    } while (true);
+
+    return allDatabases.map(db => ({
+      id: db.id,
+      title: db.title?.[0]?.plain_text || 'Untitled',
+      icon: db.icon?.emoji || db.icon?.external?.url || null
+    }));
+  } catch (error) {
+    console.error('Failed to list databases:', error);
+    throw error;
+  }
+}
+
+/**
  * 데이터베이스 정보 조회
  * @param {string} secret
  * @param {string} databaseId

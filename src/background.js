@@ -101,6 +101,9 @@ async function handleMessage(message, sender) {
     case 'GET_SYNC_STATS':
       return await storage.getSyncStats();
 
+    case 'LIST_DATABASES':
+      return await listNotionDatabases();
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -307,6 +310,23 @@ async function handleNewPostDetected(postData) {
 
     showNotification('Sync Failed', error.message, 'error');
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Notion 데이터베이스 목록 조회
+ */
+async function listNotionDatabases() {
+  const settings = await storage.getAllSettings();
+
+  if (!settings.notionSecret) {
+    return { error: 'Notion Secret이 설정되지 않았습니다' };
+  }
+
+  try {
+    return await notionApi.listDatabases(settings.notionSecret);
+  } catch (error) {
+    return { error: error.message };
   }
 }
 

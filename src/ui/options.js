@@ -6,7 +6,8 @@
 const elements = {
   threadsToken: document.getElementById('threadsToken'),
   notionSecret: document.getElementById('notionSecret'),
-  notionDbId: document.getElementById('notionDbId'),
+  notionDbSelect: document.getElementById('notionDbSelect'),
+  loadDbListBtn: document.getElementById('loadDbListBtn'),
   testThreadsBtn: document.getElementById('testThreadsBtn'),
   testNotionBtn: document.getElementById('testNotionBtn'),
   threadsStatus: document.getElementById('threadsStatus'),
@@ -70,8 +71,9 @@ async function loadSettings() {
       elements.notionSecret.value = data.notionSecret;
     }
 
+    // 저장된 DB ID가 있으면 선택 옵션에 추가
     if (data.notionDatabaseId) {
-      elements.notionDbId.value = data.notionDatabaseId;
+      currentSettings.notionDatabaseId = data.notionDatabaseId;
     }
 
     if (data.syncOptions) {
@@ -90,12 +92,20 @@ async function loadSettings() {
       toggleHashtagOptions();
     }
 
-    // 필드 매핑이 있으면 필드 목록 로드 시도
-    if (data.notionSecret && data.notionDatabaseId) {
-      await loadNotionFields();
+    // Notion 연결이 되어있으면 DB 목록 로드
+    if (data.notionSecret) {
+      elements.loadDbListBtn.disabled = false;
 
-      if (data.fieldMapping) {
-        setFieldMappings(data.fieldMapping);
+      // 저장된 DB가 있으면 목록 로드 및 선택
+      if (data.notionDatabaseId) {
+        await loadDatabaseList();
+        elements.notionDbSelect.value = data.notionDatabaseId;
+
+        // 필드 매핑 로드
+        await loadNotionFields();
+        if (data.fieldMapping) {
+          setFieldMappings(data.fieldMapping);
+        }
       }
     }
   } catch (error) {
@@ -112,9 +122,17 @@ async function loadSettings() {
 function setupEventListeners() {
   elements.testThreadsBtn.addEventListener('click', testThreadsConnection);
   elements.testNotionBtn.addEventListener('click', testNotionConnection);
+  elements.loadDbListBtn.addEventListener('click', loadDatabaseList);
   elements.loadFieldsBtn.addEventListener('click', loadNotionFields);
   elements.saveBtn.addEventListener('click', saveSettings);
   elements.resetBtn.addEventListener('click', resetSettings);
+
+  // 데이터베이스 선택 시 필드 자동 로드
+  elements.notionDbSelect.addEventListener('change', async () => {
+    if (elements.notionDbSelect.value) {
+      await loadNotionFields();
+    }
+  });
 
   // 해시태그 필터 이벤트
   elements.hashtagFilterEnabled.addEventListener('change', toggleHashtagOptions);
@@ -221,11 +239,63 @@ async function testThreadsConnection() {
 }
 
 /**
+ * 데이터베이스 목록 로드
+ */
+async function loadDatabaseList() {
+  const secret = elements.notionSecret.value.trim();
+
+  if (!secret) {
+    showStatus('notionStatus', '시크릿 키를 먼저 입력해주세요', 'error');
+    return;
+  }
+
+  elements.loadDbListBtn.disabled = true;
+  showStatus('notionStatus', '데이터베이스 목록을 불러오는 중...', 'info');
+
+  try {
+    const databases = await chrome.runtime.sendMessage({ type: 'LIST_DATABASES' });
+
+    if (databases.error) {
+      throw new Error(databases.error);
+    }
+
+    // 드롭다운 옵션 초기화
+    elements.notionDbSelect.innerHTML = '<option value="">데이터베이스를 선택하세요</option>';
+
+    if (databases.length === 0) {
+      showStatus('notionStatus',
+        'Integration에 공유된 데이터베이스가 없습니다. Notion에서 데이터베이스에 Integration을 연결해주세요.',
+        'error'
+      );
+      return;
+    }
+
+    // 옵션 추가
+    databases.forEach(db => {
+      const option = document.createElement('option');
+      option.value = db.id;
+      option.textContent = db.icon ? `${db.icon} ${db.title}` : db.title;
+      elements.notionDbSelect.appendChild(option);
+    });
+
+    // 저장된 DB가 있으면 선택
+    if (currentSettings.notionDatabaseId) {
+      elements.notionDbSelect.value = currentSettings.notionDatabaseId;
+    }
+
+    showStatus('notionStatus', `${databases.length}개의 데이터베이스를 찾았습니다`, 'success');
+  } catch (error) {
+    showStatus('notionStatus', `목록 로드 실패: ${error.message}`, 'error');
+  } finally {
+    elements.loadDbListBtn.disabled = false;
+  }
+}
+
+/**
  * Notion 연결 테스트
  */
 async function testNotionConnection() {
   const secret = elements.notionSecret.value.trim();
-  const dbId = elements.notionDbId.value.trim();
 
   if (!secret) {
     showStatus('notionStatus', '시크릿 키를 입력해주세요', 'error');
@@ -237,10 +307,7 @@ async function testNotionConnection() {
 
   try {
     // 임시로 저장 후 테스트
-    await chrome.storage.local.set({
-      notionSecret: secret,
-      notionDatabaseId: dbId
-    });
+    await chrome.storage.local.set({ notionSecret: secret });
 
     const result = await chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' });
 
@@ -252,16 +319,18 @@ async function testNotionConnection() {
       elements.notionSecret.classList.remove('error');
       elements.notionSecret.classList.add('success');
 
-      // 필드 목록 자동 로드
-      if (dbId) {
-        await loadNotionFields();
-      }
+      // DB 목록 버튼 활성화
+      elements.loadDbListBtn.disabled = false;
+
+      // DB 목록 자동 로드
+      await loadDatabaseList();
     } else {
       showStatus('notionStatus',
         `연결 실패: ${result.notion?.error || 'Unknown error'}`,
         'error'
       );
       elements.notionSecret.classList.add('error');
+      elements.loadDbListBtn.disabled = true;
     }
   } catch (error) {
     showStatus('notionStatus', `오류: ${error.message}`, 'error');
@@ -275,10 +344,10 @@ async function testNotionConnection() {
  */
 async function loadNotionFields() {
   const secret = elements.notionSecret.value.trim();
-  const dbId = elements.notionDbId.value.trim();
+  const dbId = elements.notionDbSelect.value;
 
   if (!secret || !dbId) {
-    showStatus('notionStatus', 'Notion 시크릿과 DB ID를 먼저 입력해주세요', 'error');
+    showStatus('notionStatus', 'Notion 시크릿을 입력하고 데이터베이스를 선택해주세요', 'error');
     return;
   }
 
@@ -371,7 +440,7 @@ async function saveSettings() {
     const settings = {
       threadsAccessToken: elements.threadsToken.value.trim(),
       notionSecret: elements.notionSecret.value.trim(),
-      notionDatabaseId: elements.notionDbId.value.trim(),
+      notionDatabaseId: elements.notionDbSelect.value,
       fieldMapping: {
         title: elements.mappingTitle.value,
         content: elements.mappingContent.value,
@@ -431,7 +500,8 @@ async function resetSettings() {
     // 폼 초기화
     elements.threadsToken.value = '';
     elements.notionSecret.value = '';
-    elements.notionDbId.value = '';
+    elements.notionDbSelect.innerHTML = '<option value="">연결 테스트 후 목록을 불러오세요</option>';
+    elements.loadDbListBtn.disabled = true;
     elements.autoSync.checked = true;
     elements.syncInterval.value = '5';
 
