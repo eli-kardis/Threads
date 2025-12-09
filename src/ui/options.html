@@ -532,6 +532,53 @@
       </button>
     </section>
 
+    <!-- Hashtag Filters -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background: #E0F2FE;">#️⃣</div>
+        <div>
+          <h2 class="card-title">해시태그 필터</h2>
+          <p class="card-desc">특정 해시태그가 포함된 게시글만 동기화하거나 제외합니다</p>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">해시태그 필터 사용</div>
+          <div class="toggle-desc">활성화하면 지정한 해시태그 조건에 맞는 게시글만 동기화</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="hashtagFilterEnabled" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div id="hashtagFilterOptions" style="margin-top: 16px; display: none;">
+        <div class="form-group">
+          <label class="form-label">필터 모드</label>
+          <select class="form-select" id="hashtagFilterMode">
+            <option value="include">포함 - 해시태그가 있는 글만 동기화</option>
+            <option value="exclude">제외 - 해시태그가 있는 글은 동기화하지 않음</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="hashtagList">해시태그 목록</label>
+          <input
+            type="text"
+            id="hashtagList"
+            class="form-input"
+            placeholder="notion, 아이디어, 메모 (쉼표로 구분)"
+          />
+          <p class="form-hint">
+            # 없이 해시태그 이름만 입력, 쉼표로 구분
+          </p>
+        </div>
+
+        <div id="hashtagTags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"></div>
+      </div>
+    </section>
+
     <!-- Sync Options -->
     <section class="card">
       <div class="card-header">

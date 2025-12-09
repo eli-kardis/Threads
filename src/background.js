@@ -91,6 +91,16 @@ async function handleMessage(message, sender) {
     case 'GET_SYNC_HISTORY':
       return await storage.getSyncHistory(message.limit || 50);
 
+    case 'GET_HASHTAG_FILTERS':
+      return await storage.getHashtagFilters();
+
+    case 'UPDATE_HASHTAG_FILTERS':
+      await storage.setHashtagFilters(message.filters);
+      return { success: true };
+
+    case 'GET_SYNC_STATS':
+      return await storage.getSyncStats();
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -139,6 +149,7 @@ async function performSync() {
 
   isSyncing = true;
   let syncedCount = 0;
+  let skippedCount = 0;
   let errors = [];
 
   try {
@@ -156,15 +167,35 @@ async function performSync() {
     // 각 게시글을 Notion에 동기화
     for (const thread of newThreads) {
       try {
+        // 이미 동기화된 게시글인지 확인
+        const alreadySynced = await storage.isThreadSynced(thread.id);
+        if (alreadySynced) {
+          console.log(`Thread ${thread.id} already synced, skipping`);
+          skippedCount++;
+          continue;
+        }
+
+        // 해시태그 필터 확인
+        const shouldSync = await storage.shouldSyncPost(thread.hashtags || []);
+        if (!shouldSync) {
+          console.log(`Thread ${thread.id} filtered out by hashtag filter`);
+          skippedCount++;
+          continue;
+        }
+
         const result = await syncThreadToNotion(thread, settings);
         syncedCount++;
+
+        // 동기화된 ID 저장
+        await storage.addSyncedThreadId(thread.id);
 
         await storage.addSyncHistoryEntry({
           id: generateId(),
           threadId: thread.id,
           notionPageId: result.id,
           status: 'success',
-          timestamp: formatDate(new Date())
+          timestamp: formatDate(new Date()),
+          title: thread.title
         });
       } catch (error) {
         console.error('Failed to sync thread:', thread.id, error);
@@ -176,7 +207,8 @@ async function performSync() {
           notionPageId: null,
           status: 'failed',
           timestamp: formatDate(new Date()),
-          error: error.message
+          error: error.message,
+          title: thread.title
         });
       }
     }
@@ -188,7 +220,7 @@ async function performSync() {
     if (syncedCount > 0) {
       showNotification(
         'Sync Complete',
-        `${syncedCount} threads synced to Notion`,
+        `${syncedCount} threads synced to Notion${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`,
         'success'
       );
     }
@@ -196,6 +228,7 @@ async function performSync() {
     return {
       success: true,
       syncedCount,
+      skippedCount,
       errors: errors.length > 0 ? errors : undefined
     };
   } catch (error) {

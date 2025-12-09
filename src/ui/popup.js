@@ -75,10 +75,10 @@ function renderNotConfigured() {
  * 설정 완료 상태 렌더링
  */
 async function renderConfigured() {
-  const history = await chrome.runtime.sendMessage({
-    type: 'GET_SYNC_HISTORY',
-    limit: 5
-  });
+  const [history, stats] = await Promise.all([
+    chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 5 }),
+    chrome.runtime.sendMessage({ type: 'GET_SYNC_STATS' })
+  ]);
 
   const statusClass = currentStatus.isSyncing ? '' : (currentStatus.autoSync ? '' : 'inactive');
   const statusText = currentStatus.isSyncing
@@ -101,16 +101,31 @@ async function renderConfigured() {
 
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-value">${currentStatus.recentStats.total}</div>
-          <div class="stat-label">전체</div>
+          <div class="stat-value">${stats.today || 0}</div>
+          <div class="stat-label">오늘</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${currentStatus.recentStats.success}</div>
-          <div class="stat-label">성공</div>
+          <div class="stat-value">${stats.thisWeek || 0}</div>
+          <div class="stat-label">이번 주</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${currentStatus.recentStats.failed}</div>
-          <div class="stat-label">실패</div>
+          <div class="stat-value">${stats.thisMonth || 0}</div>
+          <div class="stat-label">이번 달</div>
+        </div>
+      </div>
+
+      <!-- 성공률 프로그레스 바 -->
+      <div style="margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #6B7280; margin-bottom: 4px;">
+          <span>동기화 성공률</span>
+          <span>${stats.successRate || 0}%</span>
+        </div>
+        <div style="height: 8px; background: #E5E7EB; border-radius: 4px; overflow: hidden;">
+          <div style="height: 100%; width: ${stats.successRate || 0}%; background: linear-gradient(90deg, #10B981, #34D399); border-radius: 4px; transition: width 0.3s;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #9CA3AF; margin-top: 4px;">
+          <span>성공: ${stats.success || 0}</span>
+          <span>실패: ${stats.failed || 0}</span>
         </div>
       </div>
     </section>
@@ -146,14 +161,18 @@ function renderActivityList(history) {
   }
 
   return history.map(item => `
-    <div class="activity-item">
+    <div class="activity-item" ${item.notionPageId ? `data-notion-id="${item.notionPageId}"` : ''} style="cursor: ${item.notionPageId ? 'pointer' : 'default'};">
       <div class="activity-icon ${item.status}">
         ${item.status === 'success' ? '✓' : '✕'}
       </div>
       <div class="activity-content">
-        <div class="activity-title">Thread ${item.threadId?.slice(0, 8) || 'Unknown'}</div>
-        <div class="activity-time">${formatRelativeTime(item.timestamp)}</div>
+        <div class="activity-title">${item.title || `Thread ${item.threadId?.slice(0, 8) || 'Unknown'}`}</div>
+        <div class="activity-time">
+          ${formatRelativeTime(item.timestamp)}
+          ${item.status === 'failed' && item.error ? ` - ${item.error.slice(0, 30)}...` : ''}
+        </div>
       </div>
+      ${item.notionPageId ? '<span style="color: #9CA3AF; font-size: 12px;">→</span>' : ''}
     </div>
   `).join('');
 }

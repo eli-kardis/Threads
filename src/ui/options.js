@@ -18,6 +18,11 @@ const elements = {
   mappingTags: document.getElementById('mappingTags'),
   mappingCreatedAt: document.getElementById('mappingCreatedAt'),
   mappingSourceUrl: document.getElementById('mappingSourceUrl'),
+  hashtagFilterEnabled: document.getElementById('hashtagFilterEnabled'),
+  hashtagFilterOptions: document.getElementById('hashtagFilterOptions'),
+  hashtagFilterMode: document.getElementById('hashtagFilterMode'),
+  hashtagList: document.getElementById('hashtagList'),
+  hashtagTags: document.getElementById('hashtagTags'),
   autoSync: document.getElementById('autoSync'),
   syncInterval: document.getElementById('syncInterval'),
   saveBtn: document.getElementById('saveBtn'),
@@ -50,7 +55,8 @@ async function loadSettings() {
       'notionSecret',
       'notionDatabaseId',
       'fieldMapping',
-      'syncOptions'
+      'syncOptions',
+      'hashtagFilters'
     ]);
 
     currentSettings = data;
@@ -71,6 +77,17 @@ async function loadSettings() {
     if (data.syncOptions) {
       elements.autoSync.checked = data.syncOptions.autoSync !== false;
       elements.syncInterval.value = data.syncOptions.syncInterval || 5;
+    }
+
+    // 해시태그 필터 설정
+    if (data.hashtagFilters) {
+      elements.hashtagFilterEnabled.checked = data.hashtagFilters.enabled;
+      elements.hashtagFilterMode.value = data.hashtagFilters.mode || 'include';
+      if (data.hashtagFilters.hashtags && data.hashtagFilters.hashtags.length > 0) {
+        elements.hashtagList.value = data.hashtagFilters.hashtags.join(', ');
+        renderHashtagTags(data.hashtagFilters.hashtags);
+      }
+      toggleHashtagOptions();
     }
 
     // 필드 매핑이 있으면 필드 목록 로드 시도
@@ -98,6 +115,68 @@ function setupEventListeners() {
   elements.loadFieldsBtn.addEventListener('click', loadNotionFields);
   elements.saveBtn.addEventListener('click', saveSettings);
   elements.resetBtn.addEventListener('click', resetSettings);
+
+  // 해시태그 필터 이벤트
+  elements.hashtagFilterEnabled.addEventListener('change', toggleHashtagOptions);
+  elements.hashtagList.addEventListener('input', debounce(updateHashtagTags, 300));
+}
+
+/**
+ * 해시태그 필터 옵션 표시/숨기기
+ */
+function toggleHashtagOptions() {
+  const isEnabled = elements.hashtagFilterEnabled.checked;
+  elements.hashtagFilterOptions.style.display = isEnabled ? 'block' : 'none';
+}
+
+/**
+ * 해시태그 태그 렌더링
+ */
+function renderHashtagTags(hashtags) {
+  elements.hashtagTags.innerHTML = hashtags.map(tag => `
+    <span style="
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: #E0F2FE;
+      color: #0369A1;
+      border-radius: 16px;
+      font-size: 12px;
+    ">
+      #${tag}
+    </span>
+  `).join('');
+}
+
+/**
+ * 해시태그 입력 업데이트
+ */
+function updateHashtagTags() {
+  const input = elements.hashtagList.value;
+  const hashtags = parseHashtags(input);
+  renderHashtagTags(hashtags);
+}
+
+/**
+ * 해시태그 문자열 파싱
+ */
+function parseHashtags(input) {
+  return input
+    .split(',')
+    .map(tag => tag.trim().replace(/^#/, ''))
+    .filter(tag => tag.length > 0);
+}
+
+/**
+ * 디바운스 함수
+ */
+function debounce(fn, delay) {
+  let timeoutId;
+  return function (...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn.apply(this, args), delay);
+  };
 }
 
 /**
@@ -301,6 +380,11 @@ async function saveSettings() {
         createdAt: elements.mappingCreatedAt.value,
         sourceUrl: elements.mappingSourceUrl.value
       },
+      hashtagFilters: {
+        enabled: elements.hashtagFilterEnabled.checked,
+        mode: elements.hashtagFilterMode.value,
+        hashtags: parseHashtags(elements.hashtagList.value)
+      },
       syncOptions: {
         autoSync: elements.autoSync.checked,
         syncInterval: parseInt(elements.syncInterval.value, 10)
@@ -314,6 +398,12 @@ async function saveSettings() {
     await chrome.runtime.sendMessage({
       type: 'UPDATE_SYNC_OPTIONS',
       options: settings.syncOptions
+    });
+
+    // 해시태그 필터 업데이트
+    await chrome.runtime.sendMessage({
+      type: 'UPDATE_HASHTAG_FILTERS',
+      filters: settings.hashtagFilters
     });
 
     showStatus('saveStatus', '설정이 저장되었습니다!', 'success');

@@ -10,7 +10,9 @@ const STORAGE_KEYS = {
   FIELD_MAPPING: 'fieldMapping',
   SYNC_OPTIONS: 'syncOptions',
   SYNC_HISTORY: 'syncHistory',
-  LAST_SYNC_TIME: 'lastSyncTime'
+  LAST_SYNC_TIME: 'lastSyncTime',
+  HASHTAG_FILTERS: 'hashtagFilters',
+  SYNCED_THREAD_IDS: 'syncedThreadIds'
 };
 
 /**
@@ -216,6 +218,135 @@ export async function getAllSettings() {
     notionDbId,
     fieldMapping,
     syncOptions
+  };
+}
+
+// === 해시태그 필터 관리 ===
+
+/**
+ * 해시태그 필터 설정 저장
+ * @param {Object} filters - { enabled: boolean, mode: 'include'|'exclude', hashtags: string[] }
+ */
+export async function setHashtagFilters(filters) {
+  await set(STORAGE_KEYS.HASHTAG_FILTERS, filters);
+}
+
+/**
+ * 해시태그 필터 설정 조회
+ * @returns {Promise<Object>}
+ */
+export async function getHashtagFilters() {
+  const filters = await get(STORAGE_KEYS.HASHTAG_FILTERS);
+  return filters || { enabled: false, mode: 'include', hashtags: [] };
+}
+
+/**
+ * 게시글이 필터 조건을 통과하는지 확인
+ * @param {Array<string>} postHashtags - 게시글의 해시태그 목록
+ * @returns {Promise<boolean>}
+ */
+export async function shouldSyncPost(postHashtags) {
+  const filters = await getHashtagFilters();
+
+  if (!filters.enabled || filters.hashtags.length === 0) {
+    return true; // 필터 비활성화 시 모든 게시글 동기화
+  }
+
+  const normalizedPostTags = postHashtags.map(t => t.toLowerCase());
+  const normalizedFilterTags = filters.hashtags.map(t => t.toLowerCase());
+
+  const hasMatchingTag = normalizedPostTags.some(tag =>
+    normalizedFilterTags.includes(tag)
+  );
+
+  if (filters.mode === 'include') {
+    return hasMatchingTag; // 포함 모드: 일치하는 태그가 있어야 동기화
+  } else {
+    return !hasMatchingTag; // 제외 모드: 일치하는 태그가 없어야 동기화
+  }
+}
+
+// === 동기화된 Thread ID 관리 (중복 방지) ===
+
+/**
+ * 동기화된 Thread ID 목록 조회
+ * @returns {Promise<Set<string>>}
+ */
+export async function getSyncedThreadIds() {
+  const ids = await get(STORAGE_KEYS.SYNCED_THREAD_IDS) || [];
+  return new Set(ids);
+}
+
+/**
+ * 동기화된 Thread ID 추가
+ * @param {string} threadId
+ */
+export async function addSyncedThreadId(threadId) {
+  const ids = await get(STORAGE_KEYS.SYNCED_THREAD_IDS) || [];
+  if (!ids.includes(threadId)) {
+    ids.push(threadId);
+    // 최근 500개만 유지
+    if (ids.length > 500) {
+      ids.shift();
+    }
+    await set(STORAGE_KEYS.SYNCED_THREAD_IDS, ids);
+  }
+}
+
+/**
+ * Thread가 이미 동기화되었는지 확인
+ * @param {string} threadId
+ * @returns {Promise<boolean>}
+ */
+export async function isThreadSynced(threadId) {
+  const syncedIds = await getSyncedThreadIds();
+  return syncedIds.has(threadId);
+}
+
+// === 동기화 통계 ===
+
+/**
+ * 동기화 통계 조회
+ * @returns {Promise<Object>}
+ */
+export async function getSyncStats() {
+  const history = await getSyncHistory(100);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const thisWeekStart = new Date(today);
+  thisWeekStart.setDate(today.getDate() - today.getDay());
+
+  const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  let todayCount = 0;
+  let weekCount = 0;
+  let monthCount = 0;
+  let successCount = 0;
+  let failedCount = 0;
+
+  history.forEach(entry => {
+    const entryDate = new Date(entry.timestamp);
+
+    if (entry.status === 'success') {
+      successCount++;
+      if (entryDate >= today) todayCount++;
+      if (entryDate >= thisWeekStart) weekCount++;
+      if (entryDate >= thisMonthStart) monthCount++;
+    } else {
+      failedCount++;
+    }
+  });
+
+  return {
+    total: history.length,
+    success: successCount,
+    failed: failedCount,
+    successRate: history.length > 0 ? Math.round((successCount / history.length) * 100) : 0,
+    today: todayCount,
+    thisWeek: weekCount,
+    thisMonth: monthCount
   };
 }
 
