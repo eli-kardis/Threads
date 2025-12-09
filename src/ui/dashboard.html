@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Threads to Notion Sync - Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f7f9fc;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1F3A5F 0%, #2D4A7C 100%);
+      color: white;
+      padding: 24px 32px;
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-title {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .header-subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-light {
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+    }
+
+    .btn-light:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+
+    /* Stats Cards */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .stat-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+
+    .stat-icon.total { background: #E0E7FF; }
+    .stat-icon.success { background: #D1FAE5; }
+    .stat-icon.failed { background: #FEE2E2; }
+    .stat-icon.rate { background: #FEF3C7; }
+
+    .stat-label {
+      font-size: 14px;
+      color: #6B7280;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 700;
+      color: #1F3A5F;
+    }
+
+    .stat-change {
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .stat-change.positive { color: #10B981; }
+    .stat-change.negative { color: #EF4444; }
+
+    /* Charts */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .chart-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .chart-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #1F3A5F;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 300px;
+    }
+
+    /* History Table */
+    .history-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .history-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1F3A5F;
+    }
+
+    .history-filter {
+      display: flex;
+      gap: 8px;
+    }
+
+    .filter-btn {
+      padding: 6px 12px;
+      border: 1px solid #E5E7EB;
+      background: white;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn.active {
+      background: #1F3A5F;
+      color: white;
+      border-color: #1F3A5F;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .history-table th,
+    .history-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #F3F4F6;
+    }
+
+    .history-table th {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6B7280;
+      text-transform: uppercase;
+    }
+
+    .history-table td {
+      font-size: 14px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-badge.success {
+      background: #D1FAE5;
+      color: #065F46;
+    }
+
+    .status-badge.failed {
+      background: #FEE2E2;
+      color: #991B1B;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: #9CA3AF;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .charts-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .stats-row {
+        grid-template-columns: 1fr;
+      }
+      .header-content {
+        flex-direction: column;
+        gap: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <div>
+        <h1 class="header-title">Dashboard</h1>
+        <p class="header-subtitle">동기화 현황 및 통계</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-light" id="refreshBtn">새로고침</button>
+        <button class="btn btn-light" id="settingsBtn">설정</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Stats Cards -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-card-header">
+          <div class="stat-icon total">📊</div>
+          <span class="stat-label">전체 동기화</span>
+        </div>
+        <div class="stat-value" id="totalCount">0</div>
+        <div class="stat-change positive" id="totalChange">+0 이번 주</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-header">
+          <div class="stat-icon success">✓</div>
+          <span class="stat-label">성공</span>
+        </div>
+        <div class="stat-value" id="successCount">0</div>
+        <div class="stat-change positive" id="successChange">+0 오늘</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-header">
+          <div class="stat-icon failed">✕</div>
+          <span class="stat-label">실패</span>
+        </div>
+        <div class="stat-value" id="failedCount">0</div>
+        <div class="stat-change negative" id="failedChange">0 오늘</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-header">
+          <div class="stat-icon rate">%</div>
+          <span class="stat-label">성공률</span>
+        </div>
+        <div class="stat-value" id="successRate">0%</div>
+        <div class="stat-change positive">목표: 95%</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3 class="chart-title">일별 동기화 현황</h3>
+        <div class="chart-container">
+          <canvas id="dailyChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3 class="chart-title">성공/실패 비율</h3>
+        <div class="chart-container">
+          <canvas id="ratioChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Table -->
+    <div class="history-card">
+      <div class="history-header">
+        <h3 class="history-title">동기화 기록</h3>
+        <div class="history-filter">
+          <button class="filter-btn active" data-filter="all">전체</button>
+          <button class="filter-btn" data-filter="success">성공</button>
+          <button class="filter-btn" data-filter="failed">실패</button>
+        </div>
+      </div>
+
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>제목</th>
+            <th>상태</th>
+            <th>시간</th>
+            <th>Notion</th>
+          </tr>
+        </thead>
+        <tbody id="historyTableBody">
+          <tr>
+            <td colspan="4" class="empty-state">데이터를 불러오는 중...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="../lib/chart.min.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

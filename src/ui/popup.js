@@ -134,13 +134,16 @@ async function renderConfigured() {
       <button class="btn btn-primary" id="syncNowBtn" ${currentStatus.isSyncing ? 'disabled' : ''}>
         ${currentStatus.isSyncing ? '⏳ 동기화 중...' : '🔄 지금 동기화'}
       </button>
-      <button class="btn btn-secondary" id="openNotionBtn">
-        📝 Notion에서 보기
+      <button class="btn btn-secondary" id="openDashboardBtn">
+        📊 대시보드
       </button>
     </div>
 
     <section class="recent-section">
-      <h3 class="section-title">최근 활동</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 class="section-title" style="margin: 0;">최근 활동</h3>
+        <a href="#" id="openNotionBtn" style="font-size: 12px; color: #1F3A5F; text-decoration: none;">Notion에서 보기 →</a>
+      </div>
       <div class="activity-list" id="activityList">
         ${renderActivityList(history)}
       </div>
@@ -149,6 +152,7 @@ async function renderConfigured() {
 
   // 이벤트 리스너
   document.getElementById('syncNowBtn').addEventListener('click', handleSyncNow);
+  document.getElementById('openDashboardBtn').addEventListener('click', openDashboard);
   document.getElementById('openNotionBtn').addEventListener('click', openNotion);
 }
 
@@ -208,8 +212,16 @@ async function handleSyncNow() {
 /**
  * Notion 열기
  */
-function openNotion() {
+function openNotion(e) {
+  e.preventDefault();
   chrome.tabs.create({ url: 'https://www.notion.so' });
+}
+
+/**
+ * 대시보드 열기
+ */
+function openDashboard() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/dashboard.html') });
 }
 
 /**
