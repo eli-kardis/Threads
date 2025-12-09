@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vooster (local config)
+.vooster/
+
+# Temporary files
+*.tmp
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Icon generator (development only)
+create-icons.html

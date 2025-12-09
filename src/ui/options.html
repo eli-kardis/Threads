@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Threads to Notion Sync - 설정</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f7f9fc;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #1F3A5F 0%, #2D4A7C 100%);
+      color: white;
+      padding: 24px 32px;
+    }
+
+    .header-content {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .header-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .header-subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+
+    /* Card */
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #F3F4F6;
+    }
+
+    .card-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .card-icon.threads {
+      background: #FFE4E6;
+    }
+
+    .card-icon.notion {
+      background: #E0E7FF;
+    }
+
+    .card-icon.sync {
+      background: #D1FAE5;
+    }
+
+    .card-icon.mapping {
+      background: #FEF3C7;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: #6B7280;
+      margin-top: 2px;
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: #9CA3AF;
+      margin-top: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: #1F3A5F;
+      box-shadow: 0 0 0 3px rgba(31, 58, 95, 0.1);
+    }
+
+    .form-input.error {
+      border-color: #EF4444;
+    }
+
+    .form-input.success {
+      border-color: #10B981;
+    }
+
+    /* Toggle Switch */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+
+    .toggle-label {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .toggle-desc {
+      font-size: 12px;
+      color: #6B7280;
+      margin-top: 4px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 26px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #E5E7EB;
+      border-radius: 26px;
+      transition: 0.3s;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background: #1F3A5F;
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
+
+    /* Select */
+    .form-select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      font-size: 14px;
+      background: white;
+      cursor: pointer;
+    }
+
+    .form-select:focus {
+      outline: none;
+      border-color: #1F3A5F;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #1F3A5F 0%, #2D4A7C 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(31, 58, 95, 0.3);
+    }
+
+    .btn-secondary {
+      background: #F3F4F6;
+      color: #374151;
+    }
+
+    .btn-secondary:hover {
+      background: #E5E7EB;
+    }
+
+    .btn-success {
+      background: #10B981;
+      color: white;
+    }
+
+    .btn-danger {
+      background: #EF4444;
+      color: white;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    /* Status Messages */
+    .status-message {
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      margin-top: 16px;
+      display: none;
+    }
+
+    .status-message.show {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-message.success {
+      background: #D1FAE5;
+      color: #065F46;
+    }
+
+    .status-message.error {
+      background: #FEE2E2;
+      color: #991B1B;
+    }
+
+    .status-message.info {
+      background: #DBEAFE;
+      color: #1E40AF;
+    }
+
+    /* Mapping Grid */
+    .mapping-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .mapping-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .mapping-arrow {
+      color: #9CA3AF;
+      font-size: 20px;
+    }
+
+    .mapping-source {
+      background: #F3F4F6;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 24px;
+      color: #9CA3AF;
+      font-size: 12px;
+    }
+
+    .footer a {
+      color: #1F3A5F;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Loading Overlay */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .loading-overlay.show {
+      display: flex;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #E5E7EB;
+      border-top-color: #1F3A5F;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <h1 class="header-title">Threads to Notion Sync</h1>
+      <p class="header-subtitle">API 토큰을 설정하고 동기화 옵션을 관리하세요</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Threads Token -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon threads">🧵</div>
+        <div>
+          <h2 class="card-title">Threads 연결</h2>
+          <p class="card-desc">Threads API 액세스 토큰을 입력하세요</p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="threadsToken">Access Token</label>
+        <input
+          type="password"
+          id="threadsToken"
+          class="form-input"
+          placeholder="Threads API 액세스 토큰 입력"
+        />
+        <p class="form-hint">
+          Meta Developer Portal에서 발급받은 토큰을 입력하세요
+        </p>
+      </div>
+
+      <button class="btn btn-secondary" id="testThreadsBtn">
+        연결 테스트
+      </button>
+
+      <div class="status-message" id="threadsStatus"></div>
+    </section>
+
+    <!-- Notion Token -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon notion">📝</div>
+        <div>
+          <h2 class="card-title">Notion 연결</h2>
+          <p class="card-desc">Notion API 시크릿 키와 데이터베이스 ID를 입력하세요</p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="notionSecret">Integration Secret</label>
+        <input
+          type="password"
+          id="notionSecret"
+          class="form-input"
+          placeholder="secret_xxxxxxxx..."
+        />
+        <p class="form-hint">
+          Notion Integrations에서 생성한 Internal Integration의 시크릿 키
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="notionDbId">Database ID</label>
+        <input
+          type="text"
+          id="notionDbId"
+          class="form-input"
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        />
+        <p class="form-hint">
+          동기화할 Notion 데이터베이스의 ID (URL에서 확인 가능)
+        </p>
+      </div>
+
+      <button class="btn btn-secondary" id="testNotionBtn">
+        연결 테스트
+      </button>
+
+      <div class="status-message" id="notionStatus"></div>
+    </section>
+
+    <!-- Field Mapping -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon mapping">🔗</div>
+        <div>
+          <h2 class="card-title">필드 매핑</h2>
+          <p class="card-desc">Threads 데이터를 Notion 필드에 매핑하세요</p>
+        </div>
+      </div>
+
+      <div class="mapping-grid">
+        <div class="mapping-row">
+          <div class="mapping-source">제목 (Title)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingTitle">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">본문 (Content)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingContent">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">이미지 URL</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingImage">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">태그 (Hashtags)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingTags">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">작성 시간</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingCreatedAt">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">원본 URL</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingSourceUrl">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-secondary" id="loadFieldsBtn" style="margin-top: 16px;">
+        필드 불러오기
+      </button>
+    </section>
+
+    <!-- Sync Options -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon sync">⚡</div>
+        <div>
+          <h2 class="card-title">동기화 옵션</h2>
+          <p class="card-desc">자동 동기화 설정을 관리하세요</p>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">자동 동기화</div>
+          <div class="toggle-desc">새 게시글이 감지되면 자동으로 Notion에 저장</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoSync" checked />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="form-label" for="syncInterval">동기화 주기</label>
+        <select class="form-select" id="syncInterval">
+          <option value="1">1분마다</option>
+          <option value="5" selected>5분마다</option>
+          <option value="15">15분마다</option>
+          <option value="30">30분마다</option>
+          <option value="60">1시간마다</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Save Button -->
+    <div class="btn-row">
+      <button class="btn btn-primary" id="saveBtn">
+        💾 설정 저장
+      </button>
+      <button class="btn btn-danger" id="resetBtn">
+        🗑️ 초기화
+      </button>
+    </div>
+
+    <div class="status-message" id="saveStatus"></div>
+  </main>
+
+  <footer class="footer">
+    <p>Threads to Notion Sync v1.0.0</p>
+    <p>
+      <a href="https://github.com/eli-kardis/Threads" target="_blank">GitHub</a> |
+      <a href="#" id="helpLink">도움말</a>
+    </p>
+  </footer>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
