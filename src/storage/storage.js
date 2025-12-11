@@ -224,9 +224,9 @@ export async function addSyncHistoryEntry(entry) {
   const history = await get(STORAGE_KEYS.SYNC_HISTORY) || [];
   history.unshift(entry);
 
-  // 최근 100개만 유지
-  if (history.length > 100) {
-    history.splice(100);
+  // 최근 500개만 유지
+  if (history.length > 500) {
+    history.splice(500);
   }
 
   await set(STORAGE_KEYS.SYNC_HISTORY, history);
