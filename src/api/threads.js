@@ -245,13 +245,14 @@ export async function exchangeForLongLivedToken(shortLivedToken, appSecret) {
 }
 
 /**
- * 장기 토큰 갱신 (만료 전에 호출해야 함)
+ * 장기 토큰 갱신 (서버를 통해 갱신 - App Secret 불필요)
  * @param {string} longLivedToken - 장기 액세스 토큰
  * @returns {Promise<{access_token: string, token_type: string, expires_in: number}>}
  */
 export async function refreshLongLivedToken(longLivedToken) {
-  const url = new URL('https://graph.threads.net/refresh_access_token');
-  url.searchParams.append('grant_type', 'th_refresh_token');
+  // 서버를 통해 갱신 (사용자는 App Secret 없이도 갱신 가능)
+  const REFRESH_SERVER_URL = 'https://threads-murex-eight.vercel.app/api/refresh';
+  const url = new URL(REFRESH_SERVER_URL);
   url.searchParams.append('access_token', longLivedToken);
 
   const response = await fetch(url.toString());
