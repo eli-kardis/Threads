@@ -71,7 +71,7 @@ async function loadSettings() {
     // Storage에서 직접 로드
     const data = await chrome.storage.local.get([
       'threadsAccessToken',
-      'threadsAppSecret',
+      'threadsUserId',
       'notionSecret',
       'notionDatabaseId',
       'fieldMapping',
@@ -84,13 +84,37 @@ async function loadSettings() {
     if (data.threadsAccessToken) {
       elements.threadsToken.value = data.threadsAccessToken;
 
+      // OAuth 섹션을 연결됨 상태로 표시
+      const oauthSection = document.getElementById('oauthSection');
+      if (oauthSection) {
+        oauthSection.innerHTML = `
+          <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
+            <span style="font-size: 24px;">✅</span>
+            <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Threads 연결됨</p>
+            <p style="font-size: 12px; color: #047857; margin-top: 4px;">User ID: ${data.threadsUserId || 'N/A'}</p>
+          </div>
+        `;
+      }
+
       // 토큰 유효성 검증
       try {
         const tokenStatus = await chrome.runtime.sendMessage({ type: 'GET_TOKEN_STATUS' });
         if (tokenStatus.isExpired) {
           // 만료된 경우: 수정 모드로 전환 + 경고 표시
           setEditMode('threads');
-          showStatus('threadsStatus', '⚠️ 토큰이 만료되었습니다. 새 토큰을 입력해주세요.', 'error');
+          showStatus('threadsStatus', '⚠️ 토큰이 만료되었습니다. 다시 로그인해주세요.', 'error');
+          // OAuth 섹션 복구
+          if (oauthSection) {
+            oauthSection.innerHTML = `
+              <button class="btn btn-primary" id="threadsLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D);">
+                🧵 Threads로 로그인
+              </button>
+              <p class="form-hint" style="text-align: center; margin-top: 8px;">
+                버튼을 클릭하면 Meta 로그인 페이지로 이동합니다
+              </p>
+            `;
+            document.getElementById('threadsLoginBtn').addEventListener('click', startOAuthFlow);
+          }
         } else {
           // 유효한 경우: 설정 완료 상태
           setConfiguredState('threads');
@@ -105,12 +129,6 @@ async function loadSettings() {
       elements.notionSecret.value = data.notionSecret;
       // 저장된 시크릿이 있으면 설정 완료 상태로 표시
       setConfiguredState('notion');
-    }
-
-    if (data.threadsAppSecret) {
-      elements.threadsAppSecret.value = data.threadsAppSecret;
-      // 저장된 App Secret이 있으면 설정 완료 상태로 표시
-      setConfiguredState('appSecret');
     }
 
     // 저장된 DB ID가 있으면 선택 옵션에 추가
