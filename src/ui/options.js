@@ -13,15 +13,11 @@ const OAUTH_CONFIG = {
 // DOM 요소
 const elements = {
   threadsLoginBtn: document.getElementById('threadsLoginBtn'),
-  threadsToken: document.getElementById('threadsToken'),
   notionSecret: document.getElementById('notionSecret'),
   notionDbSelect: document.getElementById('notionDbSelect'),
   loadDbListBtn: document.getElementById('loadDbListBtn'),
-  testThreadsBtn: document.getElementById('testThreadsBtn'),
   testNotionBtn: document.getElementById('testNotionBtn'),
-  editThreadsBtn: document.getElementById('editThreadsBtn'),
   editNotionBtn: document.getElementById('editNotionBtn'),
-  toggleThreadsToken: document.getElementById('toggleThreadsToken'),
   toggleNotionSecret: document.getElementById('toggleNotionSecret'),
   threadsStatus: document.getElementById('threadsStatus'),
   notionStatus: document.getElementById('notionStatus'),
@@ -82,8 +78,6 @@ async function loadSettings() {
 
     // 폼에 값 설정
     if (data.threadsAccessToken) {
-      elements.threadsToken.value = data.threadsAccessToken;
-
       // OAuth 섹션을 연결됨 상태로 표시
       const oauthSection = document.getElementById('oauthSection');
       if (oauthSection) {
@@ -100,10 +94,8 @@ async function loadSettings() {
       try {
         const tokenStatus = await chrome.runtime.sendMessage({ type: 'GET_TOKEN_STATUS' });
         if (tokenStatus.isExpired) {
-          // 만료된 경우: 수정 모드로 전환 + 경고 표시
-          setEditMode('threads');
+          // 만료된 경우: 경고 표시 및 OAuth 섹션 복구
           showStatus('threadsStatus', '⚠️ 토큰이 만료되었습니다. 다시 로그인해주세요.', 'error');
-          // OAuth 섹션 복구
           if (oauthSection) {
             oauthSection.innerHTML = `
               <button class="btn btn-primary" id="threadsLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D);">
@@ -115,13 +107,10 @@ async function loadSettings() {
             `;
             document.getElementById('threadsLoginBtn').addEventListener('click', startOAuthFlow);
           }
-        } else {
-          // 유효한 경우: 설정 완료 상태
-          setConfiguredState('threads');
         }
       } catch (error) {
-        // 검증 실패 시 일단 설정 완료로 표시
-        setConfiguredState('threads');
+        // 검증 실패 시 무시
+        console.warn('Token status check failed:', error);
       }
     }
 
@@ -165,9 +154,10 @@ async function loadSettings() {
  */
 function setupEventListeners() {
   // OAuth 로그인 버튼
-  elements.threadsLoginBtn.addEventListener('click', startOAuthFlow);
+  if (elements.threadsLoginBtn) {
+    elements.threadsLoginBtn.addEventListener('click', startOAuthFlow);
+  }
 
-  elements.testThreadsBtn.addEventListener('click', testThreadsConnection);
   elements.testNotionBtn.addEventListener('click', testNotionConnection);
   elements.loadDbListBtn.addEventListener('click', loadDatabaseList);
   elements.loadFieldsBtn.addEventListener('click', loadNotionFields);
@@ -181,11 +171,9 @@ function setupEventListeners() {
   });
 
   // 수정 버튼
-  elements.editThreadsBtn.addEventListener('click', () => setEditMode('threads'));
   elements.editNotionBtn.addEventListener('click', () => setEditMode('notion'));
 
   // 비밀번호 표시/숨김 토글
-  elements.toggleThreadsToken.addEventListener('click', () => togglePasswordVisibility('threadsToken'));
   elements.toggleNotionSecret.addEventListener('click', () => togglePasswordVisibility('notionSecret'));
 
   // 데이터베이스 선택 시 필드 자동 로드
@@ -206,9 +194,13 @@ async function startOAuthFlow() {
   authUrl.searchParams.append('scope', OAUTH_CONFIG.scope);
   authUrl.searchParams.append('response_type', 'code');
 
+  const loginBtn = document.getElementById('threadsLoginBtn');
+
   try {
-    elements.threadsLoginBtn.disabled = true;
-    elements.threadsLoginBtn.textContent = '로그인 중...';
+    if (loginBtn) {
+      loginBtn.disabled = true;
+      loginBtn.textContent = '로그인 중...';
+    }
 
     // chrome.identity API로 OAuth 팝업 열기
     const responseUrl = await chrome.identity.launchWebAuthFlow({
@@ -256,9 +248,7 @@ async function startOAuthFlow() {
     }
 
     // UI 업데이트
-    elements.threadsToken.value = tokenData.access_token;
     showStatus('threadsStatus', '✅ Threads 연결 성공!', 'success');
-    setConfiguredState('threads');
 
     // OAuth 섹션 숨기고 연결됨 표시
     document.getElementById('oauthSection').innerHTML = `
@@ -272,9 +262,12 @@ async function startOAuthFlow() {
   } catch (error) {
     console.error('OAuth error:', error);
     showStatus('threadsStatus', `❌ 로그인 실패: ${error.message}`, 'error');
-  } finally {
-    elements.threadsLoginBtn.disabled = false;
-    elements.threadsLoginBtn.textContent = '🧵 Threads로 로그인';
+
+    // 버튼 복원
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = '🧵 Threads로 로그인';
+    }
   }
 }
 
@@ -294,14 +287,7 @@ function togglePasswordVisibility(inputId) {
  * 설정 완료 상태로 전환
  */
 function setConfiguredState(type) {
-  if (type === 'threads') {
-    elements.threadsToken.disabled = true;
-    elements.testThreadsBtn.textContent = '✓ 설정 완료';
-    elements.testThreadsBtn.classList.remove('btn-secondary');
-    elements.testThreadsBtn.classList.add('btn-configured');
-    elements.testThreadsBtn.disabled = true;
-    elements.editThreadsBtn.style.display = 'inline-flex';
-  } else if (type === 'notion') {
+  if (type === 'notion') {
     elements.notionSecret.disabled = true;
     elements.testNotionBtn.textContent = '✓ 설정 완료';
     elements.testNotionBtn.classList.remove('btn-secondary');
@@ -315,15 +301,7 @@ function setConfiguredState(type) {
  * 수정 모드로 전환
  */
 function setEditMode(type) {
-  if (type === 'threads') {
-    elements.threadsToken.disabled = false;
-    elements.testThreadsBtn.textContent = '연결 테스트';
-    elements.testThreadsBtn.classList.remove('btn-configured');
-    elements.testThreadsBtn.classList.add('btn-secondary');
-    elements.testThreadsBtn.disabled = false;
-    elements.editThreadsBtn.style.display = 'none';
-    elements.threadsToken.focus();
-  } else if (type === 'notion') {
+  if (type === 'notion') {
     elements.notionSecret.disabled = false;
     elements.testNotionBtn.textContent = '연결 테스트';
     elements.testNotionBtn.classList.remove('btn-configured');
@@ -331,49 +309,6 @@ function setEditMode(type) {
     elements.testNotionBtn.disabled = false;
     elements.editNotionBtn.style.display = 'none';
     elements.notionSecret.focus();
-  }
-}
-
-/**
- * Threads 연결 테스트
- */
-async function testThreadsConnection() {
-  const token = elements.threadsToken.value.trim();
-
-  if (!token) {
-    showStatus('threadsStatus', '토큰을 입력해주세요', 'error');
-    return;
-  }
-
-  elements.testThreadsBtn.disabled = true;
-  showStatus('threadsStatus', '연결 테스트 중...', 'info');
-
-  try {
-    // 임시로 저장 후 테스트
-    await chrome.storage.local.set({ threadsAccessToken: token });
-
-    const result = await chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' });
-
-    if (result.threads?.success) {
-      const username = result.threads.user?.username || 'Unknown';
-      elements.threadsToken.classList.remove('error');
-      elements.threadsToken.classList.add('success');
-
-      showStatus('threadsStatus', `연결 성공! @${username}`, 'success');
-
-      // 설정 완료 상태로 전환
-      setConfiguredState('threads');
-    } else {
-      showStatus('threadsStatus',
-        `연결 실패: ${result.threads?.error || 'Unknown error'}`,
-        'error'
-      );
-      elements.threadsToken.classList.add('error');
-      elements.testThreadsBtn.disabled = false;
-    }
-  } catch (error) {
-    showStatus('threadsStatus', `오류: ${error.message}`, 'error');
-    elements.testThreadsBtn.disabled = false;
   }
 }
 
@@ -670,9 +605,11 @@ async function saveSettings() {
   showLoading(true);
 
   try {
+    // 현재 저장된 토큰 가져오기 (OAuth로 저장된 토큰 유지)
+    const stored = await chrome.storage.local.get(['threadsAccessToken']);
+
     const settings = {
-      threadsAccessToken: elements.threadsToken.value.trim(),
-      threadsAppSecret: elements.threadsAppSecret.value.trim(),
+      threadsAccessToken: stored.threadsAccessToken || '',
       notionSecret: elements.notionSecret.value.trim(),
       notionDatabaseId: elements.notionDbSelect.value,
       fieldMapping: {
@@ -757,15 +694,23 @@ async function resetSettings() {
     await chrome.storage.local.clear();
 
     // 폼 초기화
-    elements.threadsToken.value = '';
-    elements.threadsAppSecret.value = '';
     elements.notionSecret.value = '';
     elements.notionDbSelect.innerHTML = '<option value="">연결 테스트 후 목록을 불러오세요</option>';
     elements.loadDbListBtn.disabled = true;
 
-    // 토큰 관련 초기화
-    elements.tokenStatusText.textContent = '토큰이 설정되지 않았습니다';
-    elements.tokenStatusBox.style.background = '#F9FAFB';
+    // OAuth 섹션 복원
+    const oauthSection = document.getElementById('oauthSection');
+    if (oauthSection) {
+      oauthSection.innerHTML = `
+        <button class="btn btn-primary" id="threadsLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D);">
+          🧵 Threads로 로그인
+        </button>
+        <p class="form-hint" style="text-align: center; margin-top: 8px;">
+          버튼을 클릭하면 Meta 로그인 페이지로 이동합니다
+        </p>
+      `;
+      document.getElementById('threadsLoginBtn').addEventListener('click', startOAuthFlow);
+    }
 
     // 필드 매핑 초기화
     [elements.mappingTitle, elements.mappingContent, elements.mappingCreatedAt,
