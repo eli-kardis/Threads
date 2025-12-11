@@ -286,6 +286,8 @@ async function startNotionOAuthFlow() {
   authUrl.searchParams.append('redirect_uri', NOTION_OAUTH_CONFIG.redirectUri);
   authUrl.searchParams.append('response_type', 'code');
   authUrl.searchParams.append('owner', 'user');
+  // 템플릿 자동 복제 (사용자 워크스페이스에 자동으로 복제됨)
+  authUrl.searchParams.append('template_id', '2bf5d1fb528c803c8245e0545029d21f');
 
   const loginBtn = document.getElementById('notionLoginBtn');
 
@@ -447,6 +449,17 @@ async function loadDatabaseList() {
     // 저장된 DB가 있으면 선택
     if (currentSettings.notionDatabaseId) {
       elements.notionDbSelect.value = currentSettings.notionDatabaseId;
+    } else {
+      // 템플릿에서 복제된 DB 자동 선택 (이름으로 매칭)
+      const templateDbName = '콘텐츠 캘린더 템플릿';
+      const matchingDb = databases.find(db => db.title.includes(templateDbName));
+      if (matchingDb) {
+        elements.notionDbSelect.value = matchingDb.id;
+        // 필드도 자동 로드
+        await loadNotionFields();
+        showStatus('notionStatus', `템플릿 DB가 자동 선택되었습니다: ${templateDbName}`, 'success');
+        return;
+      }
     }
 
     showStatus('notionStatus', `${databases.length}개의 데이터베이스를 찾았습니다`, 'success');
