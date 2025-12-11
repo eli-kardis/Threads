@@ -687,19 +687,19 @@ async function refreshAllPostsStats() {
     return;
   }
 
-  // 게시일 기준 7일 이내 게시글만 필터링
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  // 게시일 기준 30일 이내 게시글만 필터링 (인사이트 대시보드용)
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   const recentMappings = mappings.filter(m => {
     if (!m.postCreatedAt) return true; // 기존 데이터(postCreatedAt 없음)는 일단 포함
-    return new Date(m.postCreatedAt) >= oneWeekAgo;
+    return new Date(m.postCreatedAt) >= thirtyDaysAgo;
   });
 
-  console.log(`Filtering: ${mappings.length} total -> ${recentMappings.length} within 7 days`);
+  console.log(`Filtering: ${mappings.length} total -> ${recentMappings.length} within 30 days`);
 
   if (recentMappings.length === 0) {
-    console.log('No recent posts to refresh (all posts are older than 7 days)');
+    console.log('No recent posts to refresh (all posts are older than 30 days)');
     return;
   }
 
