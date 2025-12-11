@@ -670,7 +670,7 @@ async function saveSettings() {
       hour: '2-digit',
       minute: '2-digit'
     });
-    showStatus('saveStatus', `설정이 저장되었습니다! (${timeStr})`, 'success');
+    showStatus('saveStatus', `노션에 동기화가 완료되었습니다! (${timeStr})`, 'success');
 
     // 전체 게시글 동기화 토글이 ON이면 전체 동기화 실행
     if (elements.syncAllToggle && elements.syncAllToggle.checked) {

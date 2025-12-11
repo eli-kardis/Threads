@@ -369,6 +369,14 @@
 
     .loading-overlay.show {
       display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .loading-text {
+      color: #1F3A5F;
+      font-size: 16px;
+      font-weight: 500;
     }
 
     .spinner {
@@ -640,7 +648,7 @@
     <!-- Save Button -->
     <div class="btn-row">
       <button class="btn btn-primary" id="saveBtn">
-        💾 설정 저장
+        🔄 동기화 시작
       </button>
       <button class="btn btn-danger" id="resetBtn">
         🗑️ 초기화
@@ -660,6 +668,7 @@
 
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
+    <p class="loading-text">노션에 동기화 중입니다...</p>
   </div>
 
   <script src="options.js"></script>
