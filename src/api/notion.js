@@ -402,3 +402,140 @@ export async function findPageBySourceUrl(secret, databaseId, sourceUrl, sourceU
     return null;
   }
 }
+
+// === 인사이트 DB 관련 함수 ===
+
+/**
+ * 인사이트 데이터베이스 생성
+ * @param {string} secret
+ * @param {string} parentPageId - 부모 페이지 ID (기존 템플릿)
+ * @returns {Promise<Object>}
+ */
+export async function createInsightsDatabase(secret, parentPageId) {
+  const databaseData = {
+    parent: { page_id: parentPageId },
+    title: [
+      {
+        type: 'text',
+        text: { content: '📊 계정 인사이트' }
+      }
+    ],
+    properties: {
+      '날짜': {
+        title: {}
+      },
+      '조회수': {
+        number: { format: 'number' }
+      },
+      '좋아요': {
+        number: { format: 'number' }
+      },
+      '답글': {
+        number: { format: 'number' }
+      },
+      '리포스트': {
+        number: { format: 'number' }
+      },
+      '인용': {
+        number: { format: 'number' }
+      },
+      '팔로워': {
+        number: { format: 'number' }
+      },
+      '기간': {
+        select: {
+          options: [
+            { name: '7일', color: 'blue' },
+            { name: '14일', color: 'green' },
+            { name: '30일', color: 'yellow' },
+            { name: '90일', color: 'red' }
+          ]
+        }
+      },
+      '기록일': {
+        date: {}
+      }
+    }
+  };
+
+  return await notionRequest('/databases', secret, {
+    method: 'POST',
+    body: JSON.stringify(databaseData)
+  });
+}
+
+/**
+ * 인사이트 데이터베이스에 항목 추가
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {Object} insights - { views, likes, replies, reposts, quotes, followers_count, period }
+ * @returns {Promise<Object>}
+ */
+export async function addInsightsEntry(secret, databaseId, insights) {
+  const today = new Date().toISOString().split('T')[0];
+  const periodLabel = `${insights.period}일`;
+
+  const pageData = {
+    parent: { database_id: databaseId },
+    properties: {
+      '날짜': {
+        title: [
+          {
+            text: { content: `${today} (${periodLabel})` }
+          }
+        ]
+      },
+      '조회수': { number: insights.views || 0 },
+      '좋아요': { number: insights.likes || 0 },
+      '답글': { number: insights.replies || 0 },
+      '리포스트': { number: insights.reposts || 0 },
+      '인용': { number: insights.quotes || 0 },
+      '팔로워': { number: insights.followers_count || 0 },
+      '기간': { select: { name: periodLabel } },
+      '기록일': { date: { start: today } }
+    }
+  };
+
+  return await notionRequest('/pages', secret, {
+    method: 'POST',
+    body: JSON.stringify(pageData)
+  });
+}
+
+/**
+ * 오늘 이미 인사이트가 기록되었는지 확인
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {number} period
+ * @returns {Promise<boolean>}
+ */
+export async function hasInsightsForToday(secret, databaseId, period) {
+  const today = new Date().toISOString().split('T')[0];
+  const periodLabel = `${period}일`;
+
+  try {
+    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: {
+          and: [
+            {
+              property: '기록일',
+              date: { equals: today }
+            },
+            {
+              property: '기간',
+              select: { equals: periodLabel }
+            }
+          ]
+        },
+        page_size: 1
+      })
+    });
+
+    return response.results?.length > 0;
+  } catch (error) {
+    console.error('Failed to check insights for today:', error);
+    return false;
+  }
+}

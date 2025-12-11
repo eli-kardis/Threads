@@ -156,6 +156,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await performSync();
   } else if (alarm.name === 'dailyStatsRefresh') {
     await refreshAllPostsStats();
+    // 매일 계정 인사이트도 저장 (7일, 30일)
+    await saveInsightsToNotion(7);
+    await saveInsightsToNotion(30);
   } else if (alarm.name === 'tokenRefreshCheck') {
     await checkAndRefreshToken();
   }
@@ -228,6 +231,9 @@ async function handleMessage(message, sender) {
 
     case 'GET_ACCOUNT_INSIGHTS':
       return await getAccountInsightsData(message.period || 7);
+
+    case 'SAVE_INSIGHTS_TO_NOTION':
+      return await saveInsightsToNotion(message.period || 7);
 
     default:
       throw new Error(`Unknown message type: ${message.type}`);
@@ -758,6 +764,67 @@ async function getAccountInsightsData(period) {
   const insights = await threadsApi.getAccountInsights(settings.threadsToken, { period });
 
   return insights;
+}
+
+/**
+ * 인사이트를 Notion에 저장
+ * @param {number} period - 기간 (7, 14, 30, 90일)
+ */
+async function saveInsightsToNotion(period) {
+  const isConfigured = await storage.isConfigured();
+  if (!isConfigured) {
+    return { success: false, error: 'Not configured' };
+  }
+
+  const settings = await storage.getAllSettings();
+
+  try {
+    // 1. 인사이트 DB가 없으면 생성
+    let insightsDbId = await storage.getNotionInsightsDatabaseId();
+
+    if (!insightsDbId) {
+      // 기존 DB의 부모 페이지 ID 가져오기
+      const dbInfo = await notionApi.getDatabase(settings.notionSecret, settings.notionDatabaseId);
+      const parentPageId = dbInfo.parent?.page_id;
+
+      if (!parentPageId) {
+        return { success: false, error: '부모 페이지를 찾을 수 없습니다' };
+      }
+
+      // 인사이트 DB 생성
+      const newDb = await notionApi.createInsightsDatabase(settings.notionSecret, parentPageId);
+      insightsDbId = newDb.id;
+      await storage.setNotionInsightsDatabaseId(insightsDbId);
+      console.log('Created insights database:', insightsDbId);
+    }
+
+    // 2. 오늘 이미 기록되었는지 확인
+    const alreadyRecorded = await notionApi.hasInsightsForToday(settings.notionSecret, insightsDbId, period);
+    if (alreadyRecorded) {
+      return { success: true, message: '오늘 이미 기록됨', alreadyRecorded: true };
+    }
+
+    // 3. Threads API에서 인사이트 조회
+    const insights = await threadsApi.getAccountInsights(settings.threadsToken, { period });
+
+    if (insights.error) {
+      return { success: false, error: insights.error };
+    }
+
+    // 4. Notion에 저장
+    await notionApi.addInsightsEntry(settings.notionSecret, insightsDbId, insights);
+
+    console.log(`Saved insights to Notion (${period}일):`, insights);
+
+    return {
+      success: true,
+      insights,
+      message: `${period}일 인사이트가 저장되었습니다`
+    };
+  } catch (error) {
+    console.error('Failed to save insights to Notion:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 /**

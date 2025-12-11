@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   THREADS_TOKEN_EXPIRES_AT: 'threadsTokenExpiresAt',
   NOTION_SECRET: 'notionSecret',
   NOTION_DB_ID: 'notionDatabaseId',
+  NOTION_INSIGHTS_DB_ID: 'notionInsightsDatabaseId',
   FIELD_MAPPING: 'fieldMapping',
   SYNC_OPTIONS: 'syncOptions',
   SYNC_HISTORY: 'syncHistory',
@@ -175,6 +176,22 @@ export async function setNotionDatabaseId(dbId) {
  */
 export async function getNotionDatabaseId() {
   return await get(STORAGE_KEYS.NOTION_DB_ID);
+}
+
+/**
+ * Notion 인사이트 데이터베이스 ID 저장
+ * @param {string} dbId
+ */
+export async function setNotionInsightsDatabaseId(dbId) {
+  await set(STORAGE_KEYS.NOTION_INSIGHTS_DB_ID, dbId);
+}
+
+/**
+ * Notion 인사이트 데이터베이스 ID 조회
+ * @returns {Promise<string|null>}
+ */
+export async function getNotionInsightsDatabaseId() {
+  return await get(STORAGE_KEYS.NOTION_INSIGHTS_DB_ID);
 }
 
 // === 필드 매핑 관리 ===
