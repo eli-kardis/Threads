@@ -577,7 +577,7 @@ function autoMatchFields(fields) {
     mappingLikes: ['좋아요', 'likes'],
     mappingReplies: ['답글', 'replies', '댓글'],
     mappingReposts: ['리포스트', 'reposts'],
-    mappingQuotes: ['인용', 'quotes'],
+    mappingQuotes: ['인용', 'quotes', '공유'],
     mappingUsername: ['작성자', 'username', 'author']
   };
 
