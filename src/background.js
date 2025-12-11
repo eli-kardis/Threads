@@ -745,9 +745,7 @@ async function refreshAllPostsStats() {
  * 알림 표시
  */
 function showNotification(title, message, type = 'info') {
-  const iconPath = type === 'error'
-    ? 'icons/icon48.png'
-    : 'icons/icon48.png';
+  const iconPath = chrome.runtime.getURL('icons/icon48.png');
 
   chrome.notifications.create({
     type: 'basic',
