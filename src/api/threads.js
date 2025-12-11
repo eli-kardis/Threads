@@ -81,6 +81,61 @@ export async function getThread(accessToken, threadId) {
 }
 
 /**
+ * 계정 전체 인사이트 조회
+ * @param {string} accessToken
+ * @param {Object} options - { period: 7|14|30|90 }
+ * @returns {Promise<Object>} - { views, likes, replies, reposts, quotes, followers_count }
+ */
+export async function getAccountInsights(accessToken, options = {}) {
+  const { period = 7 } = options;
+
+  // 기간 계산 (Unix timestamp)
+  const now = Math.floor(Date.now() / 1000);
+  const since = now - (period * 24 * 60 * 60);
+
+  try {
+    const response = await threadsRequest('/me/threads_insights', accessToken, {
+      metric: 'views,likes,replies,reposts,quotes,followers_count',
+      since,
+      until: now
+    });
+
+    const stats = {
+      views: 0,
+      likes: 0,
+      replies: 0,
+      reposts: 0,
+      quotes: 0,
+      followers_count: 0,
+      period,
+      fetchedAt: new Date().toISOString()
+    };
+
+    if (response.data) {
+      response.data.forEach(metric => {
+        // total_value 또는 values 배열에서 값 추출
+        const value = metric.total_value?.value || metric.values?.[0]?.value || 0;
+        stats[metric.name] = value;
+      });
+    }
+
+    return stats;
+  } catch (error) {
+    console.warn('Failed to get account insights:', error.message);
+    return {
+      views: 0,
+      likes: 0,
+      replies: 0,
+      reposts: 0,
+      quotes: 0,
+      followers_count: 0,
+      period,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Threads 게시글 통계(인사이트) 조회
  * @param {string} accessToken
  * @param {string} threadId

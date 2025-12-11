@@ -226,6 +226,9 @@ async function handleMessage(message, sender) {
       await storage.setThreadsAppSecret(message.appSecret);
       return { success: true };
 
+    case 'GET_ACCOUNT_INSIGHTS':
+      return await getAccountInsightsData(message.period || 7);
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -739,6 +742,22 @@ async function refreshAllPostsStats() {
       'success'
     );
   }
+}
+
+/**
+ * 계정 전체 인사이트 데이터 조회
+ * @param {number} period - 기간 (7, 14, 30, 90일)
+ */
+async function getAccountInsightsData(period) {
+  const isConfigured = await storage.isConfigured();
+  if (!isConfigured) {
+    return { error: 'Not configured' };
+  }
+
+  const settings = await storage.getAllSettings();
+  const insights = await threadsApi.getAccountInsights(settings.threadsToken, { period });
+
+  return insights;
 }
 
 /**
