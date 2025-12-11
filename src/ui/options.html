@@ -479,46 +479,6 @@
       </div>
 
       <div class="status-message" id="threadsStatus"></div>
-
-      <!-- 토큰 상태 및 자동 갱신 설정 -->
-      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
-        <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">🔄 토큰 자동 갱신 (권장)</p>
-
-        <div id="tokenStatusBox" style="background: #F9FAFB; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
-          <div id="tokenStatusText" style="font-size: 14px; color: #374151;">
-            토큰 상태를 확인하려면 연결 테스트를 실행하세요
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="threadsAppSecret">App Secret (Client Secret)</label>
-          <div class="input-with-icon">
-            <input
-              type="password"
-              id="threadsAppSecret"
-              class="form-input"
-              placeholder="Meta 앱의 Client Secret 입력"
-            />
-            <button type="button" class="toggle-visibility" id="toggleAppSecret" title="시크릿 표시/숨김">👁</button>
-          </div>
-          <p class="form-hint">
-            Meta Developer Portal → 앱 설정 → 기본 설정에서 확인
-          </p>
-        </div>
-
-        <div class="btn-row" style="margin-top: 12px;">
-          <button class="btn btn-secondary" id="saveAppSecretBtn">저장</button>
-          <button class="btn btn-secondary" id="editAppSecretBtn" style="display: none;">수정</button>
-        </div>
-
-        <p class="form-hint" style="margin-top: 8px;">
-          App Secret 저장 후 연결 테스트 시 자동으로 장기 토큰 설정 및 자동 갱신 활성화
-        </p>
-
-        <div style="margin-top: 12px; padding: 12px; background: #FEF3C7; border-radius: 10px; font-size: 12px; color: #92400E;">
-          ⚠️ <strong>보안 안내:</strong> App Secret은 본인 컴퓨터에만 저장됩니다. 공용/공유 컴퓨터에서는 사용하지 마세요.
-        </div>
-      </div>
     </section>
 
     <!-- Notion Token -->

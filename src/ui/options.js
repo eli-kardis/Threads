@@ -14,9 +14,6 @@ const OAUTH_CONFIG = {
 const elements = {
   threadsLoginBtn: document.getElementById('threadsLoginBtn'),
   threadsToken: document.getElementById('threadsToken'),
-  threadsAppSecret: document.getElementById('threadsAppSecret'),
-  tokenStatusBox: document.getElementById('tokenStatusBox'),
-  tokenStatusText: document.getElementById('tokenStatusText'),
   notionSecret: document.getElementById('notionSecret'),
   notionDbSelect: document.getElementById('notionDbSelect'),
   loadDbListBtn: document.getElementById('loadDbListBtn'),
@@ -24,10 +21,7 @@ const elements = {
   testNotionBtn: document.getElementById('testNotionBtn'),
   editThreadsBtn: document.getElementById('editThreadsBtn'),
   editNotionBtn: document.getElementById('editNotionBtn'),
-  saveAppSecretBtn: document.getElementById('saveAppSecretBtn'),
-  editAppSecretBtn: document.getElementById('editAppSecretBtn'),
   toggleThreadsToken: document.getElementById('toggleThreadsToken'),
-  toggleAppSecret: document.getElementById('toggleAppSecret'),
   toggleNotionSecret: document.getElementById('toggleNotionSecret'),
   threadsStatus: document.getElementById('threadsStatus'),
   notionStatus: document.getElementById('notionStatus'),
@@ -65,7 +59,6 @@ let currentSettings = {};
 async function init() {
   await loadSettings();
   setupEventListeners();
-  await updateTokenStatus();
 }
 
 /**
@@ -172,14 +165,9 @@ function setupEventListeners() {
   // 수정 버튼
   elements.editThreadsBtn.addEventListener('click', () => setEditMode('threads'));
   elements.editNotionBtn.addEventListener('click', () => setEditMode('notion'));
-  elements.editAppSecretBtn.addEventListener('click', () => setEditMode('appSecret'));
-
-  // App Secret 저장 버튼
-  elements.saveAppSecretBtn.addEventListener('click', saveAppSecret);
 
   // 비밀번호 표시/숨김 토글
   elements.toggleThreadsToken.addEventListener('click', () => togglePasswordVisibility('threadsToken'));
-  elements.toggleAppSecret.addEventListener('click', () => togglePasswordVisibility('threadsAppSecret'));
   elements.toggleNotionSecret.addEventListener('click', () => togglePasswordVisibility('notionSecret'));
 
   // 데이터베이스 선택 시 필드 자동 로드
@@ -285,35 +273,6 @@ function togglePasswordVisibility(inputId) {
 }
 
 /**
- * App Secret 저장
- */
-async function saveAppSecret() {
-  const appSecret = elements.threadsAppSecret.value.trim();
-
-  if (!appSecret) {
-    alert('App Secret을 입력해주세요.');
-    return;
-  }
-
-  try {
-    elements.saveAppSecretBtn.disabled = true;
-    elements.saveAppSecretBtn.textContent = '저장 중...';
-
-    await chrome.runtime.sendMessage({
-      type: 'SAVE_APP_SECRET',
-      appSecret
-    });
-
-    setConfiguredState('appSecret');
-  } catch (error) {
-    console.error('App Secret 저장 실패:', error);
-    alert('App Secret 저장에 실패했습니다: ' + error.message);
-    elements.saveAppSecretBtn.disabled = false;
-    elements.saveAppSecretBtn.textContent = '저장';
-  }
-}
-
-/**
  * 설정 완료 상태로 전환
  */
 function setConfiguredState(type) {
@@ -331,13 +290,6 @@ function setConfiguredState(type) {
     elements.testNotionBtn.classList.add('btn-configured');
     elements.testNotionBtn.disabled = true;
     elements.editNotionBtn.style.display = 'inline-flex';
-  } else if (type === 'appSecret') {
-    elements.threadsAppSecret.disabled = true;
-    elements.saveAppSecretBtn.textContent = '✓ 설정 완료';
-    elements.saveAppSecretBtn.classList.remove('btn-secondary');
-    elements.saveAppSecretBtn.classList.add('btn-configured');
-    elements.saveAppSecretBtn.disabled = true;
-    elements.editAppSecretBtn.style.display = 'inline-flex';
   }
 }
 
@@ -361,23 +313,14 @@ function setEditMode(type) {
     elements.testNotionBtn.disabled = false;
     elements.editNotionBtn.style.display = 'none';
     elements.notionSecret.focus();
-  } else if (type === 'appSecret') {
-    elements.threadsAppSecret.disabled = false;
-    elements.saveAppSecretBtn.textContent = '저장';
-    elements.saveAppSecretBtn.classList.remove('btn-configured');
-    elements.saveAppSecretBtn.classList.add('btn-secondary');
-    elements.saveAppSecretBtn.disabled = false;
-    elements.editAppSecretBtn.style.display = 'none';
-    elements.threadsAppSecret.focus();
   }
 }
 
 /**
- * Threads 연결 테스트 + 자동 장기 토큰 설정
+ * Threads 연결 테스트
  */
 async function testThreadsConnection() {
   const token = elements.threadsToken.value.trim();
-  const appSecret = elements.threadsAppSecret.value.trim();
 
   if (!token) {
     showStatus('threadsStatus', '토큰을 입력해주세요', 'error');
@@ -398,42 +341,7 @@ async function testThreadsConnection() {
       elements.threadsToken.classList.remove('error');
       elements.threadsToken.classList.add('success');
 
-      // App Secret이 있으면 자동으로 장기 토큰 설정
-      if (appSecret) {
-        showStatus('threadsStatus', `연결 성공! @${username} - 장기 토큰 설정 중...`, 'info');
-
-        const setupResult = await chrome.runtime.sendMessage({
-          type: 'SETUP_LONG_LIVED_TOKEN',
-          token,
-          appSecret
-        });
-
-        if (setupResult.success) {
-          // 단기 토큰이 변환된 경우 새 토큰으로 UI 업데이트
-          if (setupResult.type === 'exchanged' && setupResult.newToken) {
-            elements.threadsToken.value = setupResult.newToken;
-          }
-
-          const message = setupResult.type === 'exchanged'
-            ? `연결 성공! @${username} - 장기 토큰 변환 완료 (${setupResult.remainingDays}일)`
-            : `연결 성공! @${username} - 장기 토큰 확인됨 (${setupResult.remainingDays}일)`;
-
-          showStatus('threadsStatus', message, 'success');
-        } else {
-          showStatus('threadsStatus',
-            `연결 성공! @${username} (토큰 설정 실패: ${setupResult.error})`,
-            'success'
-          );
-        }
-      } else {
-        showStatus('threadsStatus',
-          `연결 성공! @${username} (App Secret 입력 시 자동 갱신 활성화)`,
-          'success'
-        );
-      }
-
-      // 토큰 상태 업데이트
-      await updateTokenStatus();
+      showStatus('threadsStatus', `연결 성공! @${username}`, 'success');
 
       // 설정 완료 상태로 전환
       setConfiguredState('threads');
@@ -448,50 +356,6 @@ async function testThreadsConnection() {
   } catch (error) {
     showStatus('threadsStatus', `오류: ${error.message}`, 'error');
     elements.testThreadsBtn.disabled = false;
-  }
-}
-
-/**
- * 토큰 상태 UI 업데이트
- */
-async function updateTokenStatus() {
-  try {
-    const status = await chrome.runtime.sendMessage({ type: 'GET_TOKEN_STATUS' });
-
-    if (!status.hasToken) {
-      elements.tokenStatusText.textContent = '토큰이 설정되지 않았습니다';
-      elements.tokenStatusBox.style.background = '#F9FAFB';
-      return;
-    }
-
-    if (status.expiresAt === null) {
-      elements.tokenStatusText.innerHTML = `
-        <strong style="color: #F59E0B;">⚠️ 단기 토큰</strong><br>
-        <span style="font-size: 12px; color: #6B7280;">장기 토큰(60일)으로 변환하면 자동 갱신이 가능합니다</span>
-      `;
-      elements.tokenStatusBox.style.background = '#FEF3C7';
-    } else if (status.isExpired) {
-      elements.tokenStatusText.innerHTML = `
-        <strong style="color: #EF4444;">❌ 토큰 만료됨</strong><br>
-        <span style="font-size: 12px; color: #6B7280;">새 토큰을 발급받아 입력해주세요</span>
-      `;
-      elements.tokenStatusBox.style.background = '#FEE2E2';
-    } else if (status.isExpiringSoon) {
-      elements.tokenStatusText.innerHTML = `
-        <strong style="color: #F59E0B;">⚠️ 토큰 만료 임박</strong><br>
-        <span style="font-size: 12px; color: #6B7280;">남은 기간: ${status.remainingDays}일 (${formatDate(status.expiresAt)}까지)</span>
-      `;
-      elements.tokenStatusBox.style.background = '#FEF3C7';
-    } else {
-      elements.tokenStatusText.innerHTML = `
-        <strong style="color: #10B981;">✅ 장기 토큰 (정상)</strong><br>
-        <span style="font-size: 12px; color: #6B7280;">남은 기간: ${status.remainingDays}일 (${formatDate(status.expiresAt)}까지)</span>
-      `;
-      elements.tokenStatusBox.style.background = '#D1FAE5';
-    }
-  } catch (error) {
-    console.error('Failed to get token status:', error);
-    elements.tokenStatusText.textContent = '토큰 상태를 확인할 수 없습니다';
   }
 }
 
