@@ -11,12 +11,14 @@
   "permissions": [
     "storage",
     "notifications",
-    "alarms"
+    "alarms",
+    "identity"
   ],
   "host_permissions": [
     "https://www.threads.net/*",
     "https://api.notion.com/*",
-    "https://graph.threads.net/*"
+    "https://graph.threads.net/*",
+    "https://threads-murex-eight.vercel.app/*"
   ],
   "background": {
     "service_worker": "src/background.js",

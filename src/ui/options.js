@@ -2,8 +2,17 @@
  * Options 페이지 로직
  */
 
+// OAuth 설정
+const OAUTH_CONFIG = {
+  clientId: '1571587097603276',
+  redirectUri: `https://${chrome.runtime.id}.chromiumapp.org/callback`,
+  scope: 'threads_basic,threads_content_publish,threads_manage_insights,threads_manage_replies,threads_read_replies',
+  tokenServerUrl: 'https://threads-murex-eight.vercel.app/api/token'
+};
+
 // DOM 요소
 const elements = {
+  threadsLoginBtn: document.getElementById('threadsLoginBtn'),
   threadsToken: document.getElementById('threadsToken'),
   threadsAppSecret: document.getElementById('threadsAppSecret'),
   tokenStatusBox: document.getElementById('tokenStatusBox'),
@@ -144,6 +153,9 @@ async function loadSettings() {
  * 이벤트 리스너 설정
  */
 function setupEventListeners() {
+  // OAuth 로그인 버튼
+  elements.threadsLoginBtn.addEventListener('click', startOAuthFlow);
+
   elements.testThreadsBtn.addEventListener('click', testThreadsConnection);
   elements.testNotionBtn.addEventListener('click', testNotionConnection);
   elements.loadDbListBtn.addEventListener('click', loadDatabaseList);
@@ -176,6 +188,88 @@ function setupEventListeners() {
       await loadNotionFields();
     }
   });
+}
+
+/**
+ * OAuth 플로우 시작
+ */
+async function startOAuthFlow() {
+  const authUrl = new URL('https://threads.net/oauth/authorize');
+  authUrl.searchParams.append('client_id', OAUTH_CONFIG.clientId);
+  authUrl.searchParams.append('redirect_uri', OAUTH_CONFIG.redirectUri);
+  authUrl.searchParams.append('scope', OAUTH_CONFIG.scope);
+  authUrl.searchParams.append('response_type', 'code');
+
+  try {
+    elements.threadsLoginBtn.disabled = true;
+    elements.threadsLoginBtn.textContent = '로그인 중...';
+
+    // chrome.identity API로 OAuth 팝업 열기
+    const responseUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl.toString(),
+      interactive: true
+    });
+
+    // 응답 URL에서 코드 추출
+    const url = new URL(responseUrl);
+    const code = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+
+    if (error) {
+      throw new Error(`OAuth error: ${error}`);
+    }
+
+    if (!code) {
+      throw new Error('인증 코드를 받지 못했습니다');
+    }
+
+    // 서버에서 토큰 교환
+    showStatus('threadsStatus', '토큰 교환 중...', 'info');
+
+    const tokenUrl = new URL(OAUTH_CONFIG.tokenServerUrl);
+    tokenUrl.searchParams.append('code', code);
+    tokenUrl.searchParams.append('redirect_uri', OAUTH_CONFIG.redirectUri);
+
+    const tokenResponse = await fetch(tokenUrl.toString());
+    const tokenData = await tokenResponse.json();
+
+    if (tokenData.error) {
+      throw new Error(tokenData.error.message || '토큰 교환 실패');
+    }
+
+    // 토큰 저장
+    await chrome.storage.local.set({
+      threadsAccessToken: tokenData.access_token,
+      threadsUserId: tokenData.user_id
+    });
+
+    // 만료 시간 저장 (있는 경우)
+    if (tokenData.expires_in) {
+      const expiresAt = Date.now() + (tokenData.expires_in * 1000);
+      await chrome.storage.local.set({ tokenExpiresAt: expiresAt });
+    }
+
+    // UI 업데이트
+    elements.threadsToken.value = tokenData.access_token;
+    showStatus('threadsStatus', '✅ Threads 연결 성공!', 'success');
+    setConfiguredState('threads');
+
+    // OAuth 섹션 숨기고 연결됨 표시
+    document.getElementById('oauthSection').innerHTML = `
+      <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
+        <span style="font-size: 24px;">✅</span>
+        <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Threads 연결됨</p>
+        <p style="font-size: 12px; color: #047857; margin-top: 4px;">User ID: ${tokenData.user_id || 'N/A'}</p>
+      </div>
+    `;
+
+  } catch (error) {
+    console.error('OAuth error:', error);
+    showStatus('threadsStatus', `❌ 로그인 실패: ${error.message}`, 'error');
+  } finally {
+    elements.threadsLoginBtn.disabled = false;
+    elements.threadsLoginBtn.textContent = '🧵 Threads로 로그인';
+  }
 }
 
 /**
