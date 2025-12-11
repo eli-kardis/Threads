@@ -2,23 +2,27 @@
  * Options 페이지 로직
  */
 
-// OAuth 설정
-const OAUTH_CONFIG = {
+// Threads OAuth 설정
+const THREADS_OAUTH_CONFIG = {
   clientId: '1571587097603276',
   redirectUri: `https://${chrome.runtime.id}.chromiumapp.org/callback`,
   scope: 'threads_basic,threads_content_publish,threads_manage_insights,threads_manage_replies,threads_read_replies',
   tokenServerUrl: 'https://threads-murex-eight.vercel.app/api/token'
 };
 
+// Notion OAuth 설정
+const NOTION_OAUTH_CONFIG = {
+  clientId: '2c6d872b-594c-8027-9cc4-003725828159',
+  redirectUri: `https://${chrome.runtime.id}.chromiumapp.org/notion-callback`,
+  tokenServerUrl: 'https://threads-murex-eight.vercel.app/api/notion-token'
+};
+
 // DOM 요소
 const elements = {
   threadsLoginBtn: document.getElementById('threadsLoginBtn'),
-  notionSecret: document.getElementById('notionSecret'),
+  notionLoginBtn: document.getElementById('notionLoginBtn'),
   notionDbSelect: document.getElementById('notionDbSelect'),
   loadDbListBtn: document.getElementById('loadDbListBtn'),
-  testNotionBtn: document.getElementById('testNotionBtn'),
-  editNotionBtn: document.getElementById('editNotionBtn'),
-  toggleNotionSecret: document.getElementById('toggleNotionSecret'),
   threadsStatus: document.getElementById('threadsStatus'),
   notionStatus: document.getElementById('notionStatus'),
   loadFieldsBtn: document.getElementById('loadFieldsBtn'),
@@ -70,6 +74,7 @@ async function loadSettings() {
       'threadsUserId',
       'notionSecret',
       'notionDatabaseId',
+      'notionWorkspaceName',
       'fieldMapping',
       'syncOptions'
     ]);
@@ -114,23 +119,26 @@ async function loadSettings() {
       }
     }
 
+    // Notion OAuth 연결 상태 확인
     if (data.notionSecret) {
-      elements.notionSecret.value = data.notionSecret;
-      // 저장된 시크릿이 있으면 설정 완료 상태로 표시
-      setConfiguredState('notion');
-    }
+      // OAuth 섹션을 연결됨 상태로 표시
+      const notionOauthSection = document.getElementById('notionOauthSection');
+      if (notionOauthSection) {
+        const workspaceName = data.notionWorkspaceName || 'Workspace';
+        notionOauthSection.innerHTML = `
+          <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
+            <span style="font-size: 24px;">✅</span>
+            <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Notion 연결됨</p>
+            <p style="font-size: 12px; color: #047857; margin-top: 4px;">${workspaceName}</p>
+          </div>
+        `;
+      }
 
-    // 저장된 DB ID가 있으면 선택 옵션에 추가
-    if (data.notionDatabaseId) {
-      currentSettings.notionDatabaseId = data.notionDatabaseId;
-    }
-
-    // Notion 연결이 되어있으면 DB 목록 로드
-    if (data.notionSecret) {
       elements.loadDbListBtn.disabled = false;
 
       // 저장된 DB가 있으면 목록 로드 및 선택
       if (data.notionDatabaseId) {
+        currentSettings.notionDatabaseId = data.notionDatabaseId;
         await loadDatabaseList();
         elements.notionDbSelect.value = data.notionDatabaseId;
 
@@ -153,12 +161,16 @@ async function loadSettings() {
  * 이벤트 리스너 설정
  */
 function setupEventListeners() {
-  // OAuth 로그인 버튼
+  // Threads OAuth 로그인 버튼
   if (elements.threadsLoginBtn) {
-    elements.threadsLoginBtn.addEventListener('click', startOAuthFlow);
+    elements.threadsLoginBtn.addEventListener('click', startThreadsOAuthFlow);
   }
 
-  elements.testNotionBtn.addEventListener('click', testNotionConnection);
+  // Notion OAuth 로그인 버튼
+  if (elements.notionLoginBtn) {
+    elements.notionLoginBtn.addEventListener('click', startNotionOAuthFlow);
+  }
+
   elements.loadDbListBtn.addEventListener('click', loadDatabaseList);
   elements.loadFieldsBtn.addEventListener('click', loadNotionFields);
   elements.saveBtn.addEventListener('click', saveSettings);
@@ -169,12 +181,6 @@ function setupEventListeners() {
   elements.syncAllToggle.addEventListener('change', () => {
     elements.syncDateGroup.style.display = elements.syncAllToggle.checked ? 'none' : 'block';
   });
-
-  // 수정 버튼
-  elements.editNotionBtn.addEventListener('click', () => setEditMode('notion'));
-
-  // 비밀번호 표시/숨김 토글
-  elements.toggleNotionSecret.addEventListener('click', () => togglePasswordVisibility('notionSecret'));
 
   // 데이터베이스 선택 시 필드 자동 로드
   elements.notionDbSelect.addEventListener('change', async () => {
@@ -187,11 +193,11 @@ function setupEventListeners() {
 /**
  * OAuth 플로우 시작
  */
-async function startOAuthFlow() {
+async function startThreadsOAuthFlow() {
   const authUrl = new URL('https://threads.net/oauth/authorize');
-  authUrl.searchParams.append('client_id', OAUTH_CONFIG.clientId);
-  authUrl.searchParams.append('redirect_uri', OAUTH_CONFIG.redirectUri);
-  authUrl.searchParams.append('scope', OAUTH_CONFIG.scope);
+  authUrl.searchParams.append('client_id', THREADS_OAUTH_CONFIG.clientId);
+  authUrl.searchParams.append('redirect_uri', THREADS_OAUTH_CONFIG.redirectUri);
+  authUrl.searchParams.append('scope', THREADS_OAUTH_CONFIG.scope);
   authUrl.searchParams.append('response_type', 'code');
 
   const loginBtn = document.getElementById('threadsLoginBtn');
@@ -224,9 +230,9 @@ async function startOAuthFlow() {
     // 서버에서 토큰 교환
     showStatus('threadsStatus', '토큰 교환 중...', 'info');
 
-    const tokenUrl = new URL(OAUTH_CONFIG.tokenServerUrl);
+    const tokenUrl = new URL(THREADS_OAUTH_CONFIG.tokenServerUrl);
     tokenUrl.searchParams.append('code', code);
-    tokenUrl.searchParams.append('redirect_uri', OAUTH_CONFIG.redirectUri);
+    tokenUrl.searchParams.append('redirect_uri', THREADS_OAUTH_CONFIG.redirectUri);
 
     const tokenResponse = await fetch(tokenUrl.toString());
     const tokenData = await tokenResponse.json();
@@ -272,43 +278,91 @@ async function startOAuthFlow() {
 }
 
 /**
- * 비밀번호 표시/숨김 토글
+ * Notion OAuth 플로우 시작
  */
-function togglePasswordVisibility(inputId) {
-  const input = document.getElementById(inputId);
-  if (input.type === 'password') {
-    input.type = 'text';
-  } else {
-    input.type = 'password';
-  }
-}
+async function startNotionOAuthFlow() {
+  const authUrl = new URL('https://api.notion.com/v1/oauth/authorize');
+  authUrl.searchParams.append('client_id', NOTION_OAUTH_CONFIG.clientId);
+  authUrl.searchParams.append('redirect_uri', NOTION_OAUTH_CONFIG.redirectUri);
+  authUrl.searchParams.append('response_type', 'code');
+  authUrl.searchParams.append('owner', 'user');
 
-/**
- * 설정 완료 상태로 전환
- */
-function setConfiguredState(type) {
-  if (type === 'notion') {
-    elements.notionSecret.disabled = true;
-    elements.testNotionBtn.textContent = '✓ 설정 완료';
-    elements.testNotionBtn.classList.remove('btn-secondary');
-    elements.testNotionBtn.classList.add('btn-configured');
-    elements.testNotionBtn.disabled = true;
-    elements.editNotionBtn.style.display = 'inline-flex';
-  }
-}
+  const loginBtn = document.getElementById('notionLoginBtn');
 
-/**
- * 수정 모드로 전환
- */
-function setEditMode(type) {
-  if (type === 'notion') {
-    elements.notionSecret.disabled = false;
-    elements.testNotionBtn.textContent = '연결 테스트';
-    elements.testNotionBtn.classList.remove('btn-configured');
-    elements.testNotionBtn.classList.add('btn-secondary');
-    elements.testNotionBtn.disabled = false;
-    elements.editNotionBtn.style.display = 'none';
-    elements.notionSecret.focus();
+  try {
+    if (loginBtn) {
+      loginBtn.disabled = true;
+      loginBtn.textContent = '연결 중...';
+    }
+
+    // chrome.identity API로 OAuth 팝업 열기
+    const responseUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl.toString(),
+      interactive: true
+    });
+
+    // 응답 URL에서 코드 추출
+    const url = new URL(responseUrl);
+    const code = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+
+    if (error) {
+      throw new Error(`OAuth error: ${error}`);
+    }
+
+    if (!code) {
+      throw new Error('인증 코드를 받지 못했습니다');
+    }
+
+    // 서버에서 토큰 교환
+    showStatus('notionStatus', '토큰 교환 중...', 'info');
+
+    const tokenUrl = new URL(NOTION_OAUTH_CONFIG.tokenServerUrl);
+    tokenUrl.searchParams.append('code', code);
+    tokenUrl.searchParams.append('redirect_uri', NOTION_OAUTH_CONFIG.redirectUri);
+
+    const tokenResponse = await fetch(tokenUrl.toString());
+    const tokenData = await tokenResponse.json();
+
+    if (tokenData.error) {
+      throw new Error(tokenData.error.message || tokenData.error || '토큰 교환 실패');
+    }
+
+    // 토큰 저장
+    await chrome.storage.local.set({
+      notionSecret: tokenData.access_token,
+      notionWorkspaceId: tokenData.workspace_id,
+      notionWorkspaceName: tokenData.workspace_name
+    });
+
+    // UI 업데이트
+    showStatus('notionStatus', '✅ Notion 연결 성공!', 'success');
+
+    // OAuth 섹션 업데이트
+    const notionOauthSection = document.getElementById('notionOauthSection');
+    if (notionOauthSection) {
+      notionOauthSection.innerHTML = `
+        <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
+          <span style="font-size: 24px;">✅</span>
+          <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Notion 연결됨</p>
+          <p style="font-size: 12px; color: #047857; margin-top: 4px;">${tokenData.workspace_name || 'Workspace'}</p>
+        </div>
+      `;
+    }
+
+    // DB 목록 버튼 활성화 및 자동 로드
+    elements.loadDbListBtn.disabled = false;
+    await loadDatabaseList();
+
+  } catch (error) {
+    console.error('Notion OAuth error:', error);
+    showStatus('notionStatus', `❌ 연결 실패: ${error.message}`, 'error');
+
+    // 버튼 복원
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = '📝 Notion으로 연결';
+    }
   }
 }
 
@@ -359,13 +413,6 @@ async function syncFromDate() {
  * 데이터베이스 목록 로드
  */
 async function loadDatabaseList() {
-  const secret = elements.notionSecret.value.trim();
-
-  if (!secret) {
-    showStatus('notionStatus', '시크릿 키를 먼저 입력해주세요', 'error');
-    return;
-  }
-
   elements.loadDbListBtn.disabled = true;
   showStatus('notionStatus', '데이터베이스 목록을 불러오는 중...', 'info');
 
@@ -381,7 +428,7 @@ async function loadDatabaseList() {
 
     if (databases.length === 0) {
       showStatus('notionStatus',
-        'Integration에 공유된 데이터베이스가 없습니다. Notion에서 데이터베이스에 Integration을 연결해주세요.',
+        'OAuth로 선택한 페이지에 데이터베이스가 없습니다. Notion에서 다시 연결하고 데이터베이스가 있는 페이지를 선택해주세요.',
         'error'
       );
       return;
@@ -411,65 +458,13 @@ async function loadDatabaseList() {
 }
 
 /**
- * Notion 연결 테스트
- */
-async function testNotionConnection() {
-  const secret = elements.notionSecret.value.trim();
-
-  if (!secret) {
-    showStatus('notionStatus', '시크릿 키를 입력해주세요', 'error');
-    return;
-  }
-
-  elements.testNotionBtn.disabled = true;
-  showStatus('notionStatus', '연결 테스트 중...', 'info');
-
-  try {
-    // 임시로 저장 후 테스트
-    await chrome.storage.local.set({ notionSecret: secret });
-
-    const result = await chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' });
-
-    if (result.notion?.success) {
-      showStatus('notionStatus',
-        `연결 성공! 사용자: ${result.notion.user?.name || 'Bot'}`,
-        'success'
-      );
-      elements.notionSecret.classList.remove('error');
-      elements.notionSecret.classList.add('success');
-
-      // DB 목록 버튼 활성화
-      elements.loadDbListBtn.disabled = false;
-
-      // DB 목록 자동 로드
-      await loadDatabaseList();
-
-      // 설정 완료 상태로 전환
-      setConfiguredState('notion');
-    } else {
-      showStatus('notionStatus',
-        `연결 실패: ${result.notion?.error || 'Unknown error'}`,
-        'error'
-      );
-      elements.notionSecret.classList.add('error');
-      elements.loadDbListBtn.disabled = true;
-      elements.testNotionBtn.disabled = false;
-    }
-  } catch (error) {
-    showStatus('notionStatus', `오류: ${error.message}`, 'error');
-    elements.testNotionBtn.disabled = false;
-  }
-}
-
-/**
  * Notion 데이터베이스 필드 로드
  */
 async function loadNotionFields() {
-  const secret = elements.notionSecret.value.trim();
   const dbId = elements.notionDbSelect.value;
 
-  if (!secret || !dbId) {
-    showStatus('notionStatus', 'Notion 시크릿을 입력하고 데이터베이스를 선택해주세요', 'error');
+  if (!dbId) {
+    showStatus('notionStatus', '데이터베이스를 선택해주세요', 'error');
     return;
   }
 
@@ -477,10 +472,18 @@ async function loadNotionFields() {
   showLoading(true);
 
   try {
+    // 저장된 토큰 가져오기
+    const { notionSecret } = await chrome.storage.local.get(['notionSecret']);
+
+    if (!notionSecret) {
+      showStatus('notionStatus', 'Notion 연결이 필요합니다', 'error');
+      return;
+    }
+
     // Notion API로 데이터베이스 정보 조회
     const response = await fetch(`https://api.notion.com/v1/databases/${dbId}`, {
       headers: {
-        'Authorization': `Bearer ${secret}`,
+        'Authorization': `Bearer ${notionSecret}`,
         'Notion-Version': '2022-06-28'
       }
     });
@@ -606,11 +609,11 @@ async function saveSettings() {
 
   try {
     // 현재 저장된 토큰 가져오기 (OAuth로 저장된 토큰 유지)
-    const stored = await chrome.storage.local.get(['threadsAccessToken']);
+    const stored = await chrome.storage.local.get(['threadsAccessToken', 'notionSecret']);
 
     const settings = {
       threadsAccessToken: stored.threadsAccessToken || '',
-      notionSecret: elements.notionSecret.value.trim(),
+      notionSecret: stored.notionSecret || '',
       notionDatabaseId: elements.notionDbSelect.value,
       fieldMapping: {
         title: elements.mappingTitle.value,
@@ -694,11 +697,10 @@ async function resetSettings() {
     await chrome.storage.local.clear();
 
     // 폼 초기화
-    elements.notionSecret.value = '';
-    elements.notionDbSelect.innerHTML = '<option value="">연결 테스트 후 목록을 불러오세요</option>';
+    elements.notionDbSelect.innerHTML = '<option value="">Notion 연결 후 목록을 불러오세요</option>';
     elements.loadDbListBtn.disabled = true;
 
-    // OAuth 섹션 복원
+    // Threads OAuth 섹션 복원
     const oauthSection = document.getElementById('oauthSection');
     if (oauthSection) {
       oauthSection.innerHTML = `
@@ -709,7 +711,21 @@ async function resetSettings() {
           버튼을 클릭하면 Meta 로그인 페이지로 이동합니다
         </p>
       `;
-      document.getElementById('threadsLoginBtn').addEventListener('click', startOAuthFlow);
+      document.getElementById('threadsLoginBtn').addEventListener('click', startThreadsOAuthFlow);
+    }
+
+    // Notion OAuth 섹션 복원
+    const notionOauthSection = document.getElementById('notionOauthSection');
+    if (notionOauthSection) {
+      notionOauthSection.innerHTML = `
+        <button class="btn btn-primary" id="notionLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: #000;">
+          📝 Notion으로 연결
+        </button>
+        <p class="form-hint" style="text-align: center; margin-top: 8px;">
+          버튼을 클릭하면 Notion 로그인 페이지로 이동합니다
+        </p>
+      `;
+      document.getElementById('notionLoginBtn').addEventListener('click', startNotionOAuthFlow);
     }
 
     // 필드 매핑 초기화

@@ -454,54 +454,39 @@
       <div class="status-message" id="threadsStatus"></div>
     </section>
 
-    <!-- Notion Token -->
+    <!-- Notion 연결 -->
     <section class="card">
       <div class="card-header">
         <div class="card-icon notion">📝</div>
         <div>
           <h2 class="card-title">Notion 연결</h2>
-          <p class="card-desc">Notion API 시크릿 키와 데이터베이스 ID를 입력하세요</p>
+          <p class="card-desc">Notion 워크스페이스와 연결하세요</p>
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="notionSecret">Integration Secret</label>
-        <div class="input-with-icon">
-          <input
-            type="password"
-            id="notionSecret"
-            class="form-input"
-            placeholder="secret_xxxxxxxx..."
-          />
-          <button type="button" class="toggle-visibility" id="toggleNotionSecret" title="시크릿 표시/숨김">👁</button>
-        </div>
-        <p class="form-hint">
-          Notion Integrations에서 생성한 Internal Integration의 시크릿 키
+      <!-- Notion OAuth 로그인 버튼 -->
+      <div id="notionOauthSection">
+        <button class="btn btn-primary" id="notionLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: #000;">
+          📝 Notion으로 연결
+        </button>
+        <p class="form-hint" style="text-align: center; margin-top: 8px;">
+          버튼을 클릭하면 Notion 로그인 페이지로 이동합니다
         </p>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" style="margin-top: 20px;">
         <label class="form-label" for="notionDbSelect">데이터베이스 선택</label>
         <div style="display: flex; gap: 8px;">
           <select class="form-select" id="notionDbSelect" style="flex: 1;">
-            <option value="">연결 테스트 후 목록을 불러오세요</option>
+            <option value="">Notion 연결 후 목록을 불러오세요</option>
           </select>
           <button class="btn btn-secondary" id="loadDbListBtn" disabled>
             목록 불러오기
           </button>
         </div>
         <p class="form-hint">
-          Notion에서 Integration을 데이터베이스에 연결해야 목록에 표시됩니다
+          OAuth 연결 시 선택한 페이지의 데이터베이스가 표시됩니다
         </p>
-      </div>
-
-      <div class="btn-row" style="margin-top: 12px;">
-        <button class="btn btn-secondary" id="testNotionBtn">
-          연결 테스트
-        </button>
-        <button class="btn btn-secondary" id="editNotionBtn" style="display: none;">
-          수정
-        </button>
       </div>
 
       <div class="status-message" id="notionStatus"></div>
