@@ -154,6 +154,16 @@ async function renderConfigured() {
   document.getElementById('syncNowBtn').addEventListener('click', handleSyncNow);
   document.getElementById('openDashboardBtn').addEventListener('click', openDashboard);
   document.getElementById('openNotionBtn').addEventListener('click', openNotion);
+
+  // 활동 항목 클릭 이벤트
+  document.querySelectorAll('.activity-item[data-notion-id]').forEach(item => {
+    item.addEventListener('click', () => {
+      const notionId = item.dataset.notionId;
+      if (notionId) {
+        chrome.tabs.create({ url: `https://www.notion.so/${notionId.replace(/-/g, '')}` });
+      }
+    });
+  });
 }
 
 /**
