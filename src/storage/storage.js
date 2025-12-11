@@ -347,7 +347,7 @@ export async function isThreadSynced(threadId) {
  * @returns {Promise<Object>}
  */
 export async function getSyncStats() {
-  const history = await getSyncHistory(100);
+  const history = await get(STORAGE_KEYS.SYNC_HISTORY) || []; // 전체 기록 조회
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
