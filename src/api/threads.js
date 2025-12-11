@@ -57,13 +57,14 @@ export async function testConnection(accessToken) {
  * @returns {Promise<Object>}
  */
 export async function getUserThreads(accessToken, options = {}) {
-  const { limit = 25, since, until } = options;
+  const { limit = 25, since, until, after } = options;
 
   return await threadsRequest('/me/threads', accessToken, {
     fields: 'id,text,timestamp,media_type,media_url,permalink,username,is_quote_post',
     limit,
     since,
-    until
+    until,
+    after
   });
 }
 
@@ -80,11 +81,46 @@ export async function getThread(accessToken, threadId) {
 }
 
 /**
+ * Threads 게시글 통계(인사이트) 조회
+ * @param {string} accessToken
+ * @param {string} threadId
+ * @returns {Promise<Object>} - { views, likes, replies, reposts, quotes }
+ */
+export async function getThreadInsights(accessToken, threadId) {
+  try {
+    const response = await threadsRequest(`/${threadId}/insights`, accessToken, {
+      metric: 'views,likes,replies,reposts,quotes'
+    });
+
+    // API 응답을 간단한 객체로 변환
+    const stats = {
+      views: 0,
+      likes: 0,
+      replies: 0,
+      reposts: 0,
+      quotes: 0
+    };
+
+    if (response.data) {
+      response.data.forEach(metric => {
+        const value = metric.values?.[0]?.value || 0;
+        stats[metric.name] = value;
+      });
+    }
+
+    return stats;
+  } catch (error) {
+    console.warn(`Failed to get insights for thread ${threadId}:`, error.message);
+    return { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 };
+  }
+}
+
+/**
  * Threads API 응답을 내부 형식으로 변환
  * @param {Object} apiThread - Threads API 응답
  * @returns {Object} - 표준화된 게시글 객체
  */
-export function normalizeThread(apiThread) {
+export function normalizeThread(apiThread, insights = null) {
   const hashtags = extractHashtags(apiThread.text || '');
 
   return {
@@ -97,7 +133,13 @@ export function normalizeThread(apiThread) {
     createdAt: apiThread.timestamp,
     username: apiThread.username,
     isQuotePost: apiThread.is_quote_post,
-    hashtags
+    hashtags,
+    // 통계 데이터 (insights가 없으면 기본값 0)
+    views: insights?.views || 0,
+    likes: insights?.likes || 0,
+    replies: insights?.replies || 0,
+    reposts: insights?.reposts || 0,
+    quotes: insights?.quotes || 0
   };
 }
 
@@ -141,4 +183,85 @@ export async function getNewThreadsSince(accessToken, sinceTimestamp) {
 
   const threads = response.data || [];
   return threads.map(normalizeThread);
+}
+
+/**
+ * 모든 게시글 조회 (페이지네이션 지원)
+ * @param {string} accessToken
+ * @param {Object} options - { since, until }
+ * @returns {Promise<Array>}
+ */
+export async function getAllUserThreads(accessToken, options = {}) {
+  const { since, until } = options;
+  const allThreads = [];
+  let cursor = null;
+
+  do {
+    const response = await getUserThreads(accessToken, {
+      limit: 50,
+      since,
+      until,
+      after: cursor
+    });
+
+    const threads = response.data || [];
+    // 인용 게시글과 리포스트 제외 (원본 게시글만 동기화)
+    const originalThreads = threads.filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE');
+    allThreads.push(...originalThreads.map(normalizeThread));
+
+    // 다음 페이지 커서
+    cursor = response.paging?.cursors?.after || null;
+
+    console.log(`Fetched ${threads.length} threads, total: ${allThreads.length}, hasMore: ${!!cursor}`);
+  } while (cursor);
+
+  return allThreads;
+}
+
+// === 토큰 관리 API ===
+
+/**
+ * 단기 토큰을 장기 토큰(60일)으로 교환
+ * @param {string} shortLivedToken - 단기 액세스 토큰
+ * @param {string} appSecret - Meta App Secret
+ * @returns {Promise<{access_token: string, token_type: string, expires_in: number}>}
+ */
+export async function exchangeForLongLivedToken(shortLivedToken, appSecret) {
+  const url = new URL('https://graph.threads.net/access_token');
+  url.searchParams.append('grant_type', 'th_exchange_token');
+  url.searchParams.append('client_secret', appSecret);
+  url.searchParams.append('access_token', shortLivedToken);
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.error?.message || `Token exchange failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * 장기 토큰 갱신 (만료 전에 호출해야 함)
+ * @param {string} longLivedToken - 장기 액세스 토큰
+ * @returns {Promise<{access_token: string, token_type: string, expires_in: number}>}
+ */
+export async function refreshLongLivedToken(longLivedToken) {
+  const url = new URL('https://graph.threads.net/refresh_access_token');
+  url.searchParams.append('grant_type', 'th_refresh_token');
+  url.searchParams.append('access_token', longLivedToken);
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.error?.message || `Token refresh failed: ${response.status}`
+    );
+  }
+
+  return response.json();
 }

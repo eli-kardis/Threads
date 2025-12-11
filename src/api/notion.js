@@ -109,7 +109,7 @@ export async function listDatabases(secret) {
     return allDatabases.map(db => ({
       id: db.id,
       title: db.title?.[0]?.plain_text || 'Untitled',
-      icon: db.icon?.emoji || db.icon?.external?.url || null
+      icon: db.icon?.emoji || null
     }));
   } catch (error) {
     console.error('Failed to list databases:', error);
@@ -200,20 +200,6 @@ function buildProperties(threadPost, fieldMapping) {
     };
   }
 
-  // 이미지 URL 필드
-  if (fieldMapping.image && threadPost.imageUrl) {
-    properties[fieldMapping.image] = {
-      url: threadPost.imageUrl
-    };
-  }
-
-  // 태그 필드 (Multi-select)
-  if (fieldMapping.tags && threadPost.hashtags?.length > 0) {
-    properties[fieldMapping.tags] = {
-      multi_select: threadPost.hashtags.map(tag => ({ name: tag }))
-    };
-  }
-
   // 작성 시간 필드
   if (fieldMapping.createdAt && threadPost.createdAt) {
     properties[fieldMapping.createdAt] = {
@@ -227,6 +213,54 @@ function buildProperties(threadPost, fieldMapping) {
   if (fieldMapping.sourceUrl && threadPost.url) {
     properties[fieldMapping.sourceUrl] = {
       url: threadPost.url
+    };
+  }
+
+  // 조회수 필드 (Number)
+  if (fieldMapping.views && threadPost.views !== undefined) {
+    properties[fieldMapping.views] = {
+      number: threadPost.views
+    };
+  }
+
+  // 좋아요 필드 (Number)
+  if (fieldMapping.likes && threadPost.likes !== undefined) {
+    properties[fieldMapping.likes] = {
+      number: threadPost.likes
+    };
+  }
+
+  // 댓글 필드 (Number)
+  if (fieldMapping.replies && threadPost.replies !== undefined) {
+    properties[fieldMapping.replies] = {
+      number: threadPost.replies
+    };
+  }
+
+  // 리포스트 필드 (Number)
+  if (fieldMapping.reposts && threadPost.reposts !== undefined) {
+    properties[fieldMapping.reposts] = {
+      number: threadPost.reposts
+    };
+  }
+
+  // 공유(인용) 필드 (Number)
+  if (fieldMapping.quotes && threadPost.quotes !== undefined) {
+    properties[fieldMapping.quotes] = {
+      number: threadPost.quotes
+    };
+  }
+
+  // 작성자 Username 필드 (Rich Text)
+  if (fieldMapping.username && threadPost.username) {
+    properties[fieldMapping.username] = {
+      rich_text: [
+        {
+          text: {
+            content: threadPost.username
+          }
+        }
+      ]
     };
   }
 
@@ -255,20 +289,6 @@ function buildContent(threadPost) {
             }
           }
         ]
-      }
-    });
-  }
-
-  // 이미지
-  if (threadPost.imageUrl) {
-    blocks.push({
-      object: 'block',
-      type: 'image',
-      image: {
-        type: 'external',
-        external: {
-          url: threadPost.imageUrl
-        }
       }
     });
   }
@@ -317,4 +337,68 @@ export async function updatePage(secret, pageId, properties) {
     3,
     1000
   );
+}
+
+/**
+ * 통계 필드만 업데이트
+ * @param {string} secret
+ * @param {string} pageId
+ * @param {Object} stats - { views, likes, replies, reposts, quotes }
+ * @param {Object} fieldMapping
+ * @returns {Promise<Object>}
+ */
+export async function updatePageStats(secret, pageId, stats, fieldMapping) {
+  const properties = {};
+
+  if (fieldMapping.views && stats.views !== undefined) {
+    properties[fieldMapping.views] = { number: stats.views };
+  }
+  if (fieldMapping.likes && stats.likes !== undefined) {
+    properties[fieldMapping.likes] = { number: stats.likes };
+  }
+  if (fieldMapping.replies && stats.replies !== undefined) {
+    properties[fieldMapping.replies] = { number: stats.replies };
+  }
+  if (fieldMapping.reposts && stats.reposts !== undefined) {
+    properties[fieldMapping.reposts] = { number: stats.reposts };
+  }
+  if (fieldMapping.quotes && stats.quotes !== undefined) {
+    properties[fieldMapping.quotes] = { number: stats.quotes };
+  }
+
+  if (Object.keys(properties).length === 0) {
+    return null; // 업데이트할 필드 없음
+  }
+
+  return await updatePage(secret, pageId, properties);
+}
+
+/**
+ * 데이터베이스에서 특정 URL을 가진 페이지 검색
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {string} sourceUrl
+ * @param {string} sourceUrlField - URL 필드명
+ * @returns {Promise<Object|null>}
+ */
+export async function findPageBySourceUrl(secret, databaseId, sourceUrl, sourceUrlField) {
+  try {
+    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: {
+          property: sourceUrlField,
+          url: {
+            equals: sourceUrl
+          }
+        },
+        page_size: 1
+      })
+    });
+
+    return response.results?.[0] || null;
+  } catch (error) {
+    console.error('Failed to find page by source URL:', error);
+    return null;
+  }
 }

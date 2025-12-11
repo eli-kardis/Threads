@@ -383,6 +383,43 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* Input with visibility toggle */
+    .input-with-icon {
+      position: relative;
+    }
+
+    .input-with-icon .form-input {
+      padding-right: 44px;
+    }
+
+    .toggle-visibility {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      opacity: 0.5;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .toggle-visibility:hover {
+      opacity: 1;
+    }
+
+    /* Configured state button */
+    .btn-configured {
+      background: #D1FAE5;
+      color: #065F46;
+      cursor: default;
+    }
+
+    .btn-configured:hover {
+      background: #D1FAE5;
+    }
   </style>
 </head>
 <body>
@@ -406,22 +443,70 @@
 
       <div class="form-group">
         <label class="form-label" for="threadsToken">Access Token</label>
-        <input
-          type="password"
-          id="threadsToken"
-          class="form-input"
-          placeholder="Threads API 액세스 토큰 입력"
-        />
+        <div class="input-with-icon">
+          <input
+            type="password"
+            id="threadsToken"
+            class="form-input"
+            placeholder="Threads API 액세스 토큰 입력"
+          />
+          <button type="button" class="toggle-visibility" id="toggleThreadsToken" title="토큰 표시/숨김">👁</button>
+        </div>
         <p class="form-hint">
           Meta Developer Portal에서 발급받은 토큰을 입력하세요
         </p>
       </div>
 
-      <button class="btn btn-secondary" id="testThreadsBtn">
-        연결 테스트
-      </button>
+      <div class="btn-row" style="margin-top: 12px;">
+        <button class="btn btn-secondary" id="testThreadsBtn">
+          연결 테스트
+        </button>
+        <button class="btn btn-secondary" id="editThreadsBtn" style="display: none;">
+          수정
+        </button>
+      </div>
 
       <div class="status-message" id="threadsStatus"></div>
+
+      <!-- 토큰 상태 및 자동 갱신 설정 -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
+        <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">🔄 토큰 자동 갱신 (권장)</p>
+
+        <div id="tokenStatusBox" style="background: #F9FAFB; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
+          <div id="tokenStatusText" style="font-size: 14px; color: #374151;">
+            토큰 상태를 확인하려면 연결 테스트를 실행하세요
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="threadsAppSecret">App Secret (Client Secret)</label>
+          <div class="input-with-icon">
+            <input
+              type="password"
+              id="threadsAppSecret"
+              class="form-input"
+              placeholder="Meta 앱의 Client Secret 입력"
+            />
+            <button type="button" class="toggle-visibility" id="toggleAppSecret" title="시크릿 표시/숨김">👁</button>
+          </div>
+          <p class="form-hint">
+            Meta Developer Portal → 앱 설정 → 기본 설정에서 확인
+          </p>
+        </div>
+
+        <div class="btn-row" style="margin-top: 12px;">
+          <button class="btn btn-secondary" id="saveAppSecretBtn">저장</button>
+          <button class="btn btn-secondary" id="editAppSecretBtn" style="display: none;">수정</button>
+        </div>
+
+        <p class="form-hint" style="margin-top: 8px;">
+          App Secret 저장 후 연결 테스트 시 자동으로 장기 토큰 설정 및 자동 갱신 활성화
+        </p>
+
+        <div style="margin-top: 12px; padding: 12px; background: #FEF3C7; border-radius: 10px; font-size: 12px; color: #92400E;">
+          ⚠️ <strong>보안 안내:</strong> App Secret은 본인 컴퓨터에만 저장됩니다. 공용/공유 컴퓨터에서는 사용하지 마세요.
+        </div>
+      </div>
     </section>
 
     <!-- Notion Token -->
@@ -436,12 +521,15 @@
 
       <div class="form-group">
         <label class="form-label" for="notionSecret">Integration Secret</label>
-        <input
-          type="password"
-          id="notionSecret"
-          class="form-input"
-          placeholder="secret_xxxxxxxx..."
-        />
+        <div class="input-with-icon">
+          <input
+            type="password"
+            id="notionSecret"
+            class="form-input"
+            placeholder="secret_xxxxxxxx..."
+          />
+          <button type="button" class="toggle-visibility" id="toggleNotionSecret" title="시크릿 표시/숨김">👁</button>
+        </div>
         <p class="form-hint">
           Notion Integrations에서 생성한 Internal Integration의 시크릿 키
         </p>
@@ -462,9 +550,14 @@
         </p>
       </div>
 
-      <button class="btn btn-secondary" id="testNotionBtn">
-        연결 테스트
-      </button>
+      <div class="btn-row" style="margin-top: 12px;">
+        <button class="btn btn-secondary" id="testNotionBtn">
+          연결 테스트
+        </button>
+        <button class="btn btn-secondary" id="editNotionBtn" style="display: none;">
+          수정
+        </button>
+      </div>
 
       <div class="status-message" id="notionStatus"></div>
     </section>
@@ -481,7 +574,7 @@
 
       <div class="mapping-grid">
         <div class="mapping-row">
-          <div class="mapping-source">제목 (Title)</div>
+          <div class="mapping-source">첫 줄 (Title)</div>
           <span class="mapping-arrow">→</span>
           <select class="form-select" id="mappingTitle">
             <option value="">필드 선택...</option>
@@ -492,22 +585,6 @@
           <div class="mapping-source">본문 (Content)</div>
           <span class="mapping-arrow">→</span>
           <select class="form-select" id="mappingContent">
-            <option value="">필드 선택...</option>
-          </select>
-        </div>
-
-        <div class="mapping-row">
-          <div class="mapping-source">이미지 URL</div>
-          <span class="mapping-arrow">→</span>
-          <select class="form-select" id="mappingImage">
-            <option value="">필드 선택...</option>
-          </select>
-        </div>
-
-        <div class="mapping-row">
-          <div class="mapping-source">태그 (Hashtags)</div>
-          <span class="mapping-arrow">→</span>
-          <select class="form-select" id="mappingTags">
             <option value="">필드 선택...</option>
           </select>
         </div>
@@ -527,58 +604,69 @@
             <option value="">필드 선택...</option>
           </select>
         </div>
+
+        <!-- 통계 필드 매핑 -->
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E7EB;">
+          <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">📊 통계 필드 (Number 타입)</p>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">조회수 (Views)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingViews">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">좋아요 (Likes)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingLikes">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">댓글 (Replies)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingReplies">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">리포스트 (Reposts)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingReposts">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">공유 (Quotes)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingQuotes">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
+
+        <!-- 작성자 필드 매핑 -->
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E7EB;">
+          <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">👤 작성자 필드 (Text 타입)</p>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">작성자 (Username)</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingUsername">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
       </div>
 
       <button class="btn btn-secondary" id="loadFieldsBtn" style="margin-top: 16px;">
         필드 불러오기
       </button>
-    </section>
-
-    <!-- Hashtag Filters -->
-    <section class="card">
-      <div class="card-header">
-        <div class="card-icon" style="background: #E0F2FE;">#️⃣</div>
-        <div>
-          <h2 class="card-title">해시태그 필터</h2>
-          <p class="card-desc">특정 해시태그가 포함된 게시글만 동기화하거나 제외합니다</p>
-        </div>
-      </div>
-
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">해시태그 필터 사용</div>
-          <div class="toggle-desc">활성화하면 지정한 해시태그 조건에 맞는 게시글만 동기화</div>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="hashtagFilterEnabled" />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div id="hashtagFilterOptions" style="margin-top: 16px; display: none;">
-        <div class="form-group">
-          <label class="form-label">필터 모드</label>
-          <select class="form-select" id="hashtagFilterMode">
-            <option value="include">포함 - 해시태그가 있는 글만 동기화</option>
-            <option value="exclude">제외 - 해시태그가 있는 글은 동기화하지 않음</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="hashtagList">해시태그 목록</label>
-          <input
-            type="text"
-            id="hashtagList"
-            class="form-input"
-            placeholder="notion, 아이디어, 메모 (쉼표로 구분)"
-          />
-          <p class="form-hint">
-            # 없이 해시태그 이름만 입력, 쉼표로 구분
-          </p>
-        </div>
-
-        <div id="hashtagTags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"></div>
-      </div>
     </section>
 
     <!-- Sync Options -->
@@ -591,26 +679,31 @@
         </div>
       </div>
 
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">자동 동기화</div>
-          <div class="toggle-desc">새 게시글이 감지되면 자동으로 Notion에 저장</div>
+      <!-- 과거 게시글 동기화 -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">전체 게시글 동기화</div>
+            <div class="toggle-desc">Threads API 출시 이후 모든 게시글 동기화</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="syncAllToggle" checked />
+            <span class="toggle-slider"></span>
+          </label>
         </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="autoSync" checked />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
 
-      <div class="form-group" style="margin-top: 16px;">
-        <label class="form-label" for="syncInterval">동기화 주기</label>
-        <select class="form-select" id="syncInterval">
-          <option value="1">1분마다</option>
-          <option value="5" selected>5분마다</option>
-          <option value="15">15분마다</option>
-          <option value="30">30분마다</option>
-          <option value="60">1시간마다</option>
-        </select>
+        <div id="syncDateGroup" style="display: none; margin-top: 16px;">
+          <div class="form-group">
+            <label class="form-label" for="syncFromDate">시작 날짜</label>
+            <input type="date" id="syncFromDate" class="form-input" />
+          </div>
+
+          <button class="btn btn-secondary" id="syncAllBtn">
+            🔄 과거 게시글 동기화
+          </button>
+
+          <div class="status-message" id="syncAllStatus"></div>
+        </div>
       </div>
     </section>
 
