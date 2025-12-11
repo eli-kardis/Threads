@@ -509,6 +509,7 @@ async function loadNotionFields() {
     const properties = database.properties;
 
     // 필드 옵션 생성
+    console.log('Notion properties:', Object.keys(properties));
     updateFieldOptions(properties);
 
     showStatus('notionStatus', '필드 목록을 불러왔습니다', 'success');
@@ -568,6 +569,9 @@ function updateFieldOptions(properties) {
  * 필드명 기반 자동 매칭
  */
 function autoMatchFields(fields) {
+  // 디버깅: 필드명 확인
+  console.log('Auto-matching fields:', fields.map(f => f.name));
+
   const matchRules = {
     mappingTitle: ['제목', 'title', '첫 줄'],
     mappingContent: ['본문', 'content', '내용'],
