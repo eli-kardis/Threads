@@ -59,11 +59,15 @@ export async function testConnection(accessToken) {
 export async function getUserThreads(accessToken, options = {}) {
   const { limit = 25, since, until, after } = options;
 
+  // since/until을 Unix timestamp (초 단위)로 변환
+  const sinceTimestamp = since ? Math.floor(new Date(since).getTime() / 1000) : undefined;
+  const untilTimestamp = until ? Math.floor(new Date(until).getTime() / 1000) : undefined;
+
   return await threadsRequest('/me/threads', accessToken, {
     fields: 'id,text,timestamp,media_type,media_url,permalink,username,is_quote_post',
     limit,
-    since,
-    until,
+    since: sinceTimestamp,
+    until: untilTimestamp,
     after
   });
 }

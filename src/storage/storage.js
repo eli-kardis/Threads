@@ -412,16 +412,32 @@ export async function getSyncStats() {
  * @param {string} notionPageId
  * @param {string} sourceUrl - Thread 원본 URL
  * @param {string} postCreatedAt - 게시글 작성 시간 (ISO 8601)
+ * @param {Object} insights - 인사이트 데이터 { views, likes, replies, reposts, quotes }
+ * @param {string} title - 게시글 제목
  */
-export async function addThreadPageMapping(threadId, notionPageId, sourceUrl, postCreatedAt) {
+export async function addThreadPageMapping(threadId, notionPageId, sourceUrl, postCreatedAt, insights = null, title = null) {
   const mappings = await get(STORAGE_KEYS.THREAD_PAGE_MAPPINGS) || [];
+
+  const mappingData = {
+    threadId,
+    notionPageId,
+    sourceUrl,
+    postCreatedAt,
+    title: title || null,
+    insights: insights || { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 },
+    insightsUpdatedAt: new Date().toISOString()
+  };
 
   // 이미 존재하면 업데이트
   const existingIndex = mappings.findIndex(m => m.threadId === threadId);
   if (existingIndex >= 0) {
-    mappings[existingIndex] = { threadId, notionPageId, sourceUrl, postCreatedAt, updatedAt: new Date().toISOString() };
+    mappingData.createdAt = mappings[existingIndex].createdAt;
+    mappingData.title = title || mappings[existingIndex].title; // 기존 title 보존
+    mappingData.updatedAt = new Date().toISOString();
+    mappings[existingIndex] = mappingData;
   } else {
-    mappings.push({ threadId, notionPageId, sourceUrl, postCreatedAt, createdAt: new Date().toISOString() });
+    mappingData.createdAt = new Date().toISOString();
+    mappings.push(mappingData);
   }
 
   // 최근 500개만 유지
@@ -430,6 +446,33 @@ export async function addThreadPageMapping(threadId, notionPageId, sourceUrl, po
   }
 
   await set(STORAGE_KEYS.THREAD_PAGE_MAPPINGS, mappings);
+}
+
+/**
+ * Thread 인사이트 업데이트 (인사이트만 업데이트)
+ * @param {string} threadId
+ * @param {Object} insights - { views, likes, replies, reposts, quotes }
+ * @returns {Promise<boolean>} - 업데이트 성공 여부
+ */
+export async function updateThreadInsights(threadId, insights) {
+  const mappings = await get(STORAGE_KEYS.THREAD_PAGE_MAPPINGS) || [];
+  const index = mappings.findIndex(m => m.threadId === threadId);
+
+  if (index < 0) {
+    return false;
+  }
+
+  mappings[index].insights = {
+    views: insights.views || 0,
+    likes: insights.likes || 0,
+    replies: insights.replies || 0,
+    reposts: insights.reposts || 0,
+    quotes: insights.quotes || 0
+  };
+  mappings[index].insightsUpdatedAt = new Date().toISOString();
+
+  await set(STORAGE_KEYS.THREAD_PAGE_MAPPINGS, mappings);
+  return true;
 }
 
 /**

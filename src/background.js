@@ -226,6 +226,16 @@ async function handleMessage(message, sender) {
       await storage.setThreadsAppSecret(message.appSecret);
       return { success: true };
 
+    case 'GET_ACCOUNT_INSIGHTS':
+      const settingsForInsights = await storage.getAllSettings();
+      return await threadsApi.getAccountInsights(settingsForInsights.threadsToken, { period: message.period || 7 });
+
+    case 'GET_AGGREGATED_INSIGHTS':
+      return await getAggregatedInsights(message.period || 7);
+
+    case 'GET_THREAD_MAPPINGS':
+      return await storage.getThreadPageMappings();
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -289,13 +299,18 @@ async function performSync() {
     const myUsername = myUserResult.user?.username;
     console.log(`Verified current user: @${myUsername}`);
 
-    // 마지막 동기화 이후 새 게시글 조회 (페이지네이션으로 전체)
-    const newThreads = await threadsApi.getAllUserThreads(
+    // 전체 게시글 조회 (Threads API가 since 파라미터를 지원하지 않음)
+    const allThreads = await threadsApi.getAllUserThreads(
       settings.threadsToken,
-      { since: lastSyncTime }
+      {} // since 제거 - API가 지원하지 않음
     );
 
-    console.log(`Found ${newThreads.length} new threads to sync`);
+    // 클라이언트 측 필터링: lastSyncTime 이후 글만
+    const newThreads = lastSyncTime
+      ? allThreads.filter(t => new Date(t.createdAt) > new Date(lastSyncTime))
+      : allThreads;
+
+    console.log(`Found ${newThreads.length} new threads to sync (total fetched: ${allThreads.length})`);
 
     // 각 게시글을 Notion에 동기화
     for (const thread of newThreads) {
@@ -499,8 +514,8 @@ async function syncThreadToNotion(thread, settings) {
     settings.fieldMapping || getDefaultFieldMapping()
   );
 
-  // threadId와 Notion pageId 매핑 저장 (통계 업데이트용)
-  await storage.addThreadPageMapping(thread.id, result.id, thread.url, thread.createdAt);
+  // threadId와 Notion pageId 매핑 저장 (통계 업데이트용, 인사이트 포함, 제목 포함)
+  await storage.addThreadPageMapping(thread.id, result.id, thread.url, thread.createdAt, insights, thread.title);
 
   return result;
 }
@@ -687,26 +702,34 @@ async function refreshAllPostsStats() {
     return;
   }
 
-  // 게시일 기준 30일 이내 게시글만 필터링 (인사이트 대시보드용)
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // 1. insights 없는 게시글 (백필 대상)
+  const missingInsights = mappings.filter(m => !m.insights);
+
+  // 2. 게시일 기준 7일 이내 게시글 (정기 새로고침)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   const recentMappings = mappings.filter(m => {
-    if (!m.postCreatedAt) return true; // 기존 데이터(postCreatedAt 없음)는 일단 포함
-    return new Date(m.postCreatedAt) >= thirtyDaysAgo;
+    if (!m.postCreatedAt) return false;
+    return new Date(m.postCreatedAt) >= sevenDaysAgo;
   });
 
-  console.log(`Filtering: ${mappings.length} total -> ${recentMappings.length} within 30 days`);
+  // 합쳐서 중복 제거
+  const toRefresh = [...new Map(
+    [...missingInsights, ...recentMappings].map(m => [m.threadId, m])
+  ).values()];
 
-  if (recentMappings.length === 0) {
-    console.log('No recent posts to refresh (all posts are older than 30 days)');
+  console.log(`Refresh targets: ${missingInsights.length} missing insights + ${recentMappings.length} recent = ${toRefresh.length} total (deduped)`);
+
+  if (toRefresh.length === 0) {
+    console.log('No posts to refresh');
     return;
   }
 
   let updatedCount = 0;
   let errorCount = 0;
 
-  for (const mapping of recentMappings) {
+  for (const mapping of toRefresh) {
     try {
       // Threads API에서 최신 통계 조회
       const insights = await threadsApi.getThreadInsights(settings.threadsToken, mapping.threadId);
@@ -718,6 +741,9 @@ async function refreshAllPostsStats() {
         insights,
         settings.fieldMapping || {}
       );
+
+      // Storage 인사이트 업데이트 (대시보드용)
+      await storage.updateThreadInsights(mapping.threadId, insights);
 
       updatedCount++;
       console.log(`Updated stats for thread ${mapping.threadId}`);
@@ -739,6 +765,69 @@ async function refreshAllPostsStats() {
       'success'
     );
   }
+}
+
+/**
+ * Storage 기반 인사이트 집계 (대시보드용)
+ * @param {number} period - 기간 (7, 30, 90=전체)
+ * @returns {Promise<Object>} - 집계된 인사이트 데이터
+ */
+async function getAggregatedInsights(period) {
+  const mappings = await storage.getThreadPageMappings();
+
+  // 기간별 필터링
+  let filteredMappings = mappings;
+  if (period !== 90) { // 90은 "전체"를 의미
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - period);
+
+    filteredMappings = mappings.filter(m => {
+      if (!m.postCreatedAt) return true; // 기존 데이터는 포함
+      return new Date(m.postCreatedAt) >= cutoffDate;
+    });
+  }
+
+  // 인사이트 합산
+  const aggregated = {
+    views: 0,
+    likes: 0,
+    replies: 0,
+    reposts: 0,
+    quotes: 0,
+    postCount: filteredMappings.length,
+    period,
+    fetchedAt: new Date().toISOString()
+  };
+
+  for (const mapping of filteredMappings) {
+    if (mapping.insights) {
+      aggregated.views += mapping.insights.views || 0;
+      aggregated.likes += mapping.insights.likes || 0;
+      aggregated.replies += mapping.insights.replies || 0;
+      aggregated.reposts += mapping.insights.reposts || 0;
+      aggregated.quotes += mapping.insights.quotes || 0;
+    }
+  }
+
+  // 팔로워 수는 Threads API에서 현재 값 조회
+  try {
+    const settings = await storage.getAllSettings();
+    if (settings.threadsToken) {
+      const connectionResult = await threadsApi.testConnection(settings.threadsToken);
+      if (connectionResult.success && connectionResult.user) {
+        // 팔로워 수를 가져오기 위해 account insights API 호출
+        const accountInsights = await threadsApi.getAccountInsights(settings.threadsToken, { period: 7 });
+        aggregated.followers_count = accountInsights.followers_count || 0;
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to get followers count:', error);
+    aggregated.followers_count = 0;
+  }
+
+  console.log(`Aggregated insights (${period} days): ${aggregated.postCount} posts, ${aggregated.views} views`);
+
+  return aggregated;
 }
 
 /**

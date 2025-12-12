@@ -75,15 +75,20 @@ function renderNotConfigured() {
  * 설정 완료 상태 렌더링
  */
 async function renderConfigured() {
-  const [history, stats] = await Promise.all([
+  const [history, weekInsights, monthInsights, totalInsights] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 5 }),
-    chrome.runtime.sendMessage({ type: 'GET_SYNC_STATS' })
+    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 7 }),
+    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 30 }),
+    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 90 })
   ]);
 
-  const statusClass = currentStatus.isSyncing ? '' : (currentStatus.autoSync ? '' : 'inactive');
+  const statusClass = currentStatus.isSyncing ? '' : '';
+  const totalViews = totalInsights.views || 0;
+  const followers = totalInsights.followers_count || 0;
+  const conversionRate = totalViews > 0 ? ((followers / totalViews) * 100).toFixed(2) : 0;
   const statusText = currentStatus.isSyncing
     ? '동기화 중...'
-    : (currentStatus.autoSync ? '자동 동기화 활성' : '자동 동기화 비활성');
+    : `팔로워 전환율 ${conversionRate}%`;
 
   const lastSyncText = currentStatus.lastSyncTime
     ? formatRelativeTime(currentStatus.lastSyncTime)
@@ -101,31 +106,16 @@ async function renderConfigured() {
 
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-value">${stats.today || 0}</div>
-          <div class="stat-label">오늘</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${stats.thisWeek || 0}</div>
+          <div class="stat-value">${formatCompactNumber(weekInsights.views || 0)}</div>
           <div class="stat-label">이번 주</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.thisMonth || 0}</div>
+          <div class="stat-value">${formatCompactNumber(monthInsights.views || 0)}</div>
           <div class="stat-label">이번 달</div>
         </div>
-      </div>
-
-      <!-- 성공률 프로그레스 바 -->
-      <div style="margin-top: 16px;">
-        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #6B7280; margin-bottom: 4px;">
-          <span>동기화 성공률</span>
-          <span>${stats.successRate || 0}%</span>
-        </div>
-        <div style="height: 8px; background: #E5E7EB; border-radius: 4px; overflow: hidden;">
-          <div style="height: 100%; width: ${stats.successRate || 0}%; background: linear-gradient(90deg, #10B981, #34D399); border-radius: 4px; transition: width 0.3s;"></div>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #9CA3AF; margin-top: 4px;">
-          <span>성공: ${stats.success || 0}</span>
-          <span>실패: ${stats.failed || 0}</span>
+        <div class="stat-card">
+          <div class="stat-value">${formatCompactNumber(totalInsights.views || 0)}</div>
+          <div class="stat-label">전체</div>
         </div>
       </div>
     </section>
@@ -174,7 +164,12 @@ function renderActivityList(history) {
     return '<div class="empty-state">아직 동기화된 게시글이 없습니다</div>';
   }
 
-  return history.map(item => `
+  // 타임스탬프 기준 내림차순 정렬 (최신순)
+  const sortedHistory = [...history].sort((a, b) =>
+    new Date(b.timestamp) - new Date(a.timestamp)
+  );
+
+  return sortedHistory.map(item => `
     <div class="activity-item" ${item.notionPageId ? `data-notion-id="${item.notionPageId}"` : ''} style="cursor: ${item.notionPageId ? 'pointer' : 'default'};">
       <div class="activity-icon ${item.status}">
         ${item.status === 'success' ? '✓' : '✕'}
@@ -232,6 +227,26 @@ function openNotion(e) {
  */
 function openDashboard() {
   chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/dashboard.html') });
+}
+
+/**
+ * 숫자 포맷 (콤마 구분)
+ */
+function formatNumber(num) {
+  return num.toLocaleString();
+}
+
+/**
+ * 숫자 포맷 (K/M 축약, 팝업용)
+ */
+function formatCompactNumber(num) {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return num.toLocaleString();
 }
 
 /**

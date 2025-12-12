@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Threads to Notion Sync - Dashboard</title>
+  <title>Threads 통계 - Dashboard</title>
   <style>
     * {
       margin: 0;
@@ -76,6 +76,34 @@
       padding: 32px;
     }
 
+    /* Period Tabs */
+    .period-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .period-tab {
+      padding: 10px 24px;
+      border: 1px solid #E5E7EB;
+      background: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .period-tab:hover {
+      background: #F3F4F6;
+    }
+
+    .period-tab.active {
+      background: #1F3A5F;
+      color: white;
+      border-color: #1F3A5F;
+    }
+
     /* Stats Cards */
     .stats-row {
       display: grid;
@@ -108,10 +136,10 @@
       font-size: 24px;
     }
 
-    .stat-icon.total { background: #E0E7FF; }
-    .stat-icon.success { background: #D1FAE5; }
-    .stat-icon.failed { background: #FEE2E2; }
-    .stat-icon.rate { background: #FEF3C7; }
+    .stat-icon.views { background: #E0E7FF; }
+    .stat-icon.likes { background: #FCE7F3; }
+    .stat-icon.replies { background: #D1FAE5; }
+    .stat-icon.reposts { background: #FEF3C7; }
 
     .stat-label {
       font-size: 14px;
@@ -124,13 +152,11 @@
       color: #1F3A5F;
     }
 
-    .stat-change {
+    .stat-sub {
       font-size: 12px;
+      color: #9CA3AF;
       margin-top: 8px;
     }
-
-    .stat-change.positive { color: #10B981; }
-    .stat-change.negative { color: #EF4444; }
 
     /* Charts */
     .charts-row {
@@ -159,6 +185,134 @@
       height: 300px;
     }
 
+    /* Ratio Stats */
+    .ratio-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 20px 0;
+    }
+
+    .ratio-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ratio-label {
+      font-size: 14px;
+      color: #6B7280;
+    }
+
+    .ratio-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1F3A5F;
+    }
+
+    .ratio-divider {
+      height: 1px;
+      background: #E5E7EB;
+      margin: 8px 0;
+    }
+
+    .ratio-item.highlight .ratio-label {
+      font-weight: 600;
+      color: #1F3A5F;
+    }
+
+    .ratio-item.highlight .ratio-value {
+      font-size: 32px;
+      color: #10B981;
+    }
+
+    /* Best Time Analysis */
+    .chart-subtitle {
+      font-size: 13px;
+      color: #9CA3AF;
+      margin-top: -12px;
+      margin-bottom: 20px;
+    }
+
+    .best-time-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .best-time-loading {
+      text-align: center;
+      padding: 24px;
+      color: #9CA3AF;
+    }
+
+    .best-time-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      background: #F9FAFB;
+      border-radius: 8px;
+    }
+
+    .best-time-row.best {
+      background: linear-gradient(135deg, #E0E7FF 0%, #C7D2FE 100%);
+    }
+
+    .best-time-rank {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #E5E7EB;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6B7280;
+    }
+
+    .best-time-row.best .best-time-rank {
+      background: #1F3A5F;
+      color: white;
+    }
+
+    .best-time-label {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .best-time-row.best .best-time-label {
+      color: #1F3A5F;
+      font-weight: 600;
+    }
+
+    .best-time-value {
+      font-size: 14px;
+      color: #6B7280;
+    }
+
+    .best-time-row.best .best-time-value {
+      color: #1F3A5F;
+      font-weight: 600;
+    }
+
+    .best-time-bar {
+      width: 60px;
+      height: 6px;
+      background: #E5E7EB;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .best-time-bar-fill {
+      height: 100%;
+      background: #1F3A5F;
+      border-radius: 3px;
+    }
+
     /* History Table */
     .history-card {
       background: white;
@@ -178,27 +332,6 @@
       font-size: 18px;
       font-weight: 600;
       color: #1F3A5F;
-    }
-
-    .history-filter {
-      display: flex;
-      gap: 8px;
-    }
-
-    .filter-btn {
-      padding: 6px 12px;
-      border: 1px solid #E5E7EB;
-      background: white;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .filter-btn.active {
-      background: #1F3A5F;
-      color: white;
-      border-color: #1F3A5F;
     }
 
     .history-table {
@@ -232,22 +365,20 @@
       border-radius: 12px;
       font-size: 12px;
       font-weight: 500;
-    }
-
-    .status-badge.success {
       background: #D1FAE5;
       color: #065F46;
-    }
-
-    .status-badge.failed {
-      background: #FEE2E2;
-      color: #991B1B;
     }
 
     .empty-state {
       text-align: center;
       padding: 48px;
       color: #9CA3AF;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 48px;
+      color: #6B7280;
     }
 
     /* Responsive */
@@ -268,6 +399,9 @@
         flex-direction: column;
         gap: 16px;
       }
+      .period-tabs {
+        flex-wrap: wrap;
+      }
     }
   </style>
 </head>
@@ -275,8 +409,8 @@
   <header class="header">
     <div class="header-content">
       <div>
-        <h1 class="header-title">Dashboard</h1>
-        <p class="header-subtitle">동기화 현황 및 통계</p>
+        <h1 class="header-title">Threads 통계</h1>
+        <p class="header-subtitle" id="usernameSubtitle">계정 인사이트</p>
       </div>
       <div class="header-actions">
         <button class="btn btn-light" id="refreshBtn">새로고침</button>
@@ -286,58 +420,96 @@
   </header>
 
   <main class="container">
+    <!-- Period Tabs -->
+    <div class="period-tabs">
+      <button class="period-tab active" data-period="7">7일</button>
+      <button class="period-tab" data-period="30">30일</button>
+      <button class="period-tab" data-period="90">전체</button>
+    </div>
+
     <!-- Stats Cards -->
     <div class="stats-row">
       <div class="stat-card">
         <div class="stat-card-header">
-          <div class="stat-icon total">📊</div>
-          <span class="stat-label">전체 동기화</span>
+          <div class="stat-icon views">👁️</div>
+          <span class="stat-label">조회수</span>
         </div>
-        <div class="stat-value" id="totalCount">0</div>
-        <div class="stat-change positive" id="totalChange">+0 이번 주</div>
+        <div class="stat-value" id="viewsCount">-</div>
+        <div class="stat-sub">Views</div>
       </div>
 
       <div class="stat-card">
         <div class="stat-card-header">
-          <div class="stat-icon success">✓</div>
-          <span class="stat-label">성공</span>
+          <div class="stat-icon likes">❤️</div>
+          <span class="stat-label">좋아요</span>
         </div>
-        <div class="stat-value" id="successCount">0</div>
-        <div class="stat-change positive" id="successChange">+0 오늘</div>
+        <div class="stat-value" id="likesCount">-</div>
+        <div class="stat-sub">Likes</div>
       </div>
 
       <div class="stat-card">
         <div class="stat-card-header">
-          <div class="stat-icon failed">✕</div>
-          <span class="stat-label">실패</span>
+          <div class="stat-icon replies">💬</div>
+          <span class="stat-label">댓글</span>
         </div>
-        <div class="stat-value" id="failedCount">0</div>
-        <div class="stat-change negative" id="failedChange">0 오늘</div>
+        <div class="stat-value" id="repliesCount">-</div>
+        <div class="stat-sub">Replies</div>
       </div>
 
       <div class="stat-card">
         <div class="stat-card-header">
-          <div class="stat-icon rate">%</div>
-          <span class="stat-label">성공률</span>
+          <div class="stat-icon reposts">🔄</div>
+          <span class="stat-label">리포스트</span>
         </div>
-        <div class="stat-value" id="successRate">0%</div>
-        <div class="stat-change positive">목표: 95%</div>
+        <div class="stat-value" id="repostsCount">-</div>
+        <div class="stat-sub">Reposts</div>
       </div>
     </div>
 
     <!-- Charts -->
     <div class="charts-row">
       <div class="chart-card">
-        <h3 class="chart-title">일별 동기화 현황</h3>
+        <h3 class="chart-title">일별 조회수 현황</h3>
         <div class="chart-container">
           <canvas id="dailyChart"></canvas>
         </div>
       </div>
 
       <div class="chart-card">
-        <h3 class="chart-title">성공/실패 비율</h3>
-        <div class="chart-container">
-          <canvas id="ratioChart"></canvas>
+        <h3 class="chart-title">전체 조회수 대비 팔로워</h3>
+        <div class="ratio-stats">
+          <div class="ratio-item">
+            <span class="ratio-label">전체 조회수</span>
+            <span class="ratio-value" id="totalViewsCount">-</span>
+          </div>
+          <div class="ratio-item">
+            <span class="ratio-label">팔로워</span>
+            <span class="ratio-value" id="totalFollowersCount">-</span>
+          </div>
+          <div class="ratio-divider"></div>
+          <div class="ratio-item highlight">
+            <span class="ratio-label">팔로워 전환율</span>
+            <span class="ratio-value" id="conversionRate">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Best Time Analysis -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3 class="chart-title">📅 요일별 평균 참여율</h3>
+        <p class="chart-subtitle">어떤 요일에 올린 게시글의 참여율이 높을까요?</p>
+        <div class="best-time-stats" id="dayOfWeekStats">
+          <div class="best-time-loading">분석 중...</div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3 class="chart-title">🕐 시간대별 평균 참여율</h3>
+        <p class="chart-subtitle">어떤 시간에 올린 게시글의 참여율이 높을까요?</p>
+        <div class="best-time-stats" id="timeOfDayStats">
+          <div class="best-time-loading">분석 중...</div>
         </div>
       </div>
     </div>
@@ -345,26 +517,24 @@
     <!-- History Table -->
     <div class="history-card">
       <div class="history-header">
-        <h3 class="history-title">동기화 기록</h3>
-        <div class="history-filter">
-          <button class="filter-btn active" data-filter="all">전체</button>
-          <button class="filter-btn" data-filter="success">성공</button>
-          <button class="filter-btn" data-filter="failed">실패</button>
-        </div>
+        <h3 class="history-title">스레드 기록</h3>
       </div>
 
       <table class="history-table">
         <thead>
           <tr>
             <th>제목</th>
-            <th>상태</th>
-            <th>시간</th>
+            <th>조회수</th>
+            <th>좋아요</th>
+            <th>댓글</th>
+            <th>리포스트</th>
+            <th>작성 시간</th>
             <th>Notion</th>
           </tr>
         </thead>
         <tbody id="historyTableBody">
           <tr>
-            <td colspan="4" class="empty-state">데이터를 불러오는 중...</td>
+            <td colspan="7" class="loading">데이터를 불러오는 중...</td>
           </tr>
         </tbody>
       </table>
