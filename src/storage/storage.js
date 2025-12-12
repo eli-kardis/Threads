@@ -18,6 +18,13 @@ const STORAGE_KEYS = {
   THREAD_PAGE_MAPPINGS: 'threadPageMappings'
 };
 
+// 스토리지 제한 상수
+const STORAGE_LIMITS = {
+  MAX_HISTORY_ENTRIES: 500,
+  MAX_SYNCED_IDS: 500,
+  MAX_PAGE_MAPPINGS: 500
+};
+
 /**
  * 스토리지에서 값 조회
  * @param {string} key
@@ -94,6 +101,11 @@ export async function getThreadsAppSecret() {
  * @param {number} expiresAt - Unix timestamp (밀리초)
  */
 export async function setTokenExpiresAt(expiresAt) {
+  // 입력 검증: 유효한 timestamp인지 확인
+  if (typeof expiresAt !== 'number' || expiresAt <= 0 || !Number.isFinite(expiresAt)) {
+    console.warn('Invalid expiresAt value:', expiresAt);
+    return; // 잘못된 값은 저장하지 않음
+  }
   await set(STORAGE_KEYS.THREADS_TOKEN_EXPIRES_AT, expiresAt);
 }
 
@@ -109,14 +121,18 @@ export async function getTokenExpiresAt() {
  * 토큰이 곧 만료되는지 확인 (7일 이내)
  * @returns {Promise<boolean>}
  */
+// 시간 상수 (밀리초)
+const TIME_CONSTANTS = {
+  ONE_DAY_MS: 24 * 60 * 60 * 1000,
+  SEVEN_DAYS_MS: 7 * 24 * 60 * 60 * 1000
+};
+
 export async function isTokenExpiringSoon() {
   const expiresAt = await getTokenExpiresAt();
-  if (!expiresAt) return false;
+  if (!expiresAt || typeof expiresAt !== 'number') return false;
 
   const now = Date.now();
-  const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
-
-  return expiresAt - now < sevenDaysInMs;
+  return expiresAt - now < TIME_CONSTANTS.SEVEN_DAYS_MS;
 }
 
 /**
@@ -136,14 +152,14 @@ export async function isTokenExpired() {
  */
 export async function getTokenRemainingDays() {
   const expiresAt = await getTokenExpiresAt();
-  if (!expiresAt) return null;
+  if (!expiresAt || typeof expiresAt !== 'number') return null;
 
   const now = Date.now();
   const remainingMs = expiresAt - now;
 
   if (remainingMs <= 0) return 0;
 
-  return Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  return Math.ceil(remainingMs / TIME_CONSTANTS.ONE_DAY_MS);
 }
 
 /**
@@ -241,9 +257,9 @@ export async function addSyncHistoryEntry(entry) {
   const history = await get(STORAGE_KEYS.SYNC_HISTORY) || [];
   history.unshift(entry);
 
-  // 최근 500개만 유지
-  if (history.length > 500) {
-    history.splice(500);
+  // 최근 500개만 유지 (splice 버그 수정: length로 직접 자르기)
+  if (history.length > STORAGE_LIMITS.MAX_HISTORY_ENTRIES) {
+    history.length = STORAGE_LIMITS.MAX_HISTORY_ENTRIES;
   }
 
   await set(STORAGE_KEYS.SYNC_HISTORY, history);
@@ -339,8 +355,8 @@ export async function addSyncedThreadId(threadId) {
   const ids = await get(STORAGE_KEYS.SYNCED_THREAD_IDS) || [];
   if (!ids.includes(threadId)) {
     ids.push(threadId);
-    // 최근 500개만 유지
-    if (ids.length > 500) {
+    // 최근 500개만 유지 (오래된 것부터 제거)
+    if (ids.length > STORAGE_LIMITS.MAX_SYNCED_IDS) {
       ids.shift();
     }
     await set(STORAGE_KEYS.SYNCED_THREAD_IDS, ids);
@@ -440,8 +456,8 @@ export async function addThreadPageMapping(threadId, notionPageId, sourceUrl, po
     mappings.push(mappingData);
   }
 
-  // 최근 500개만 유지
-  if (mappings.length > 500) {
+  // 최근 500개만 유지 (오래된 것부터 제거)
+  if (mappings.length > STORAGE_LIMITS.MAX_PAGE_MAPPINGS) {
     mappings.shift();
   }
 

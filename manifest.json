@@ -40,5 +40,8 @@
     },
     "default_title": "Threads to Notion Sync"
   },
-  "options_page": "src/ui/options.html"
+  "options_page": "src/ui/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }

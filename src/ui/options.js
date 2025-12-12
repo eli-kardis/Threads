@@ -217,6 +217,11 @@ async function startThreadsOAuthFlow() {
       interactive: true
     });
 
+    // 사용자가 OAuth 팝업을 닫은 경우 처리
+    if (!responseUrl) {
+      throw new Error('로그인이 취소되었습니다');
+    }
+
     // 응답 URL에서 코드 추출
     const url = new URL(responseUrl);
     const code = url.searchParams.get('code');
@@ -305,6 +310,11 @@ async function startNotionOAuthFlow() {
       url: authUrl.toString(),
       interactive: true
     });
+
+    // 사용자가 OAuth 팝업을 닫은 경우 처리
+    if (!responseUrl) {
+      throw new Error('연결이 취소되었습니다');
+    }
 
     // 응답 URL에서 코드 추출
     const url = new URL(responseUrl);

@@ -3,8 +3,12 @@
  * Threads 웹 페이지에서 새 글 작성을 감지
  */
 
-// 감지된 게시글 ID 캐시 (중복 방지)
+// 감지된 게시글 ID 캐시 (중복 방지, 메모리 누수 방지를 위해 크기 제한)
+const MAX_DETECTED_POSTS = 200;
 const detectedPosts = new Set();
+
+// MutationObserver 인스턴스 참조 (정리용)
+let domObserver = null;
 
 /**
  * 초기화
@@ -23,7 +27,12 @@ function init() {
  * DOM 변경 감시 (MutationObserver)
  */
 function observeDOM() {
-  const observer = new MutationObserver((mutations) => {
+  // 기존 observer가 있으면 정리
+  if (domObserver) {
+    domObserver.disconnect();
+  }
+
+  domObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       if (mutation.type === 'childList') {
         checkForNewPosts(mutation.addedNodes);
@@ -32,13 +41,26 @@ function observeDOM() {
   });
 
   // body 전체 감시 (더 정밀한 타겟팅 가능)
-  observer.observe(document.body, {
+  domObserver.observe(document.body, {
     childList: true,
     subtree: true
   });
 
   console.log('DOM observer started');
 }
+
+/**
+ * Observer 정리 (페이지 언로드 시)
+ */
+function cleanupObserver() {
+  if (domObserver) {
+    domObserver.disconnect();
+    domObserver = null;
+  }
+}
+
+// 페이지 언로드 시 정리
+window.addEventListener('beforeunload', cleanupObserver);
 
 /**
  * 새 게시글 확인
@@ -56,6 +78,12 @@ function checkForNewPosts(nodes) {
     postElements.forEach(postElement => {
       const postData = extractPostData(postElement);
       if (postData && !detectedPosts.has(postData.id)) {
+        // 메모리 누수 방지: Set 크기 제한
+        if (detectedPosts.size >= MAX_DETECTED_POSTS) {
+          // 가장 오래된 항목 제거 (Set은 삽입 순서 유지)
+          const firstItem = detectedPosts.values().next().value;
+          detectedPosts.delete(firstItem);
+        }
         detectedPosts.add(postData.id);
         notifyNewPost(postData);
       }
@@ -154,7 +182,7 @@ function extractUsername() {
  * @returns {string}
  */
 function generateTempId() {
-  return `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `temp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**

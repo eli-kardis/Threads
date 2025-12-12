@@ -12,6 +12,9 @@ const NOTION_VERSION = '2022-06-28';
 const REQUEST_DELAY = 334; // ~3 req/sec
 let lastRequestTime = 0;
 
+// 페이지네이션 안전장치
+const MAX_PAGINATION_PAGES = 50;
+
 /**
  * Rate Limit을 준수하며 요청 대기
  */
@@ -81,8 +84,15 @@ export async function listDatabases(secret) {
   try {
     const allDatabases = [];
     let cursor = null;
+    let pageCount = 0;
 
     do {
+      // 무한 루프 방지
+      if (pageCount >= MAX_PAGINATION_PAGES) {
+        console.warn(`Reached max pagination pages (${MAX_PAGINATION_PAGES}), stopping`);
+        break;
+      }
+
       const body = {
         filter: {
           value: 'database',
@@ -100,9 +110,17 @@ export async function listDatabases(secret) {
         body: JSON.stringify(body)
       });
 
-      allDatabases.push(...response.results);
+      // 응답 검증
+      if (!response.results || !Array.isArray(response.results)) {
+        console.error('Invalid Notion API response:', response);
+        break;
+      }
 
-      if (!response.has_more) break;
+      allDatabases.push(...response.results);
+      pageCount++;
+
+      // 종료 조건 확인
+      if (!response.has_more || !response.next_cursor) break;
       cursor = response.next_cursor;
     } while (true);
 

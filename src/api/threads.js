@@ -5,6 +5,12 @@
 
 const THREADS_API_BASE = 'https://graph.threads.net/v1.0';
 
+// 페이지네이션 안전장치
+const PAGINATION_LIMITS = {
+  MAX_PAGES: 100,  // 최대 페이지 수 (무한 루프 방지)
+  MAX_ITEMS: 5000  // 최대 아이템 수
+};
+
 /**
  * Threads API 요청
  * @param {string} endpoint
@@ -254,8 +260,31 @@ export async function getAllUserThreads(accessToken, options = {}) {
   const { since, until } = options;
   const allThreads = [];
   let cursor = null;
+  const seenCursors = new Set(); // 무한 루프 감지용
+  let pageCount = 0;
 
   do {
+    // 무한 루프 방지: 이미 본 cursor인지 확인
+    if (cursor && seenCursors.has(cursor)) {
+      console.warn('Pagination loop detected, breaking');
+      break;
+    }
+    if (cursor) {
+      seenCursors.add(cursor);
+    }
+
+    // 최대 페이지 수 제한
+    if (pageCount >= PAGINATION_LIMITS.MAX_PAGES) {
+      console.warn(`Reached max page limit (${PAGINATION_LIMITS.MAX_PAGES}), stopping`);
+      break;
+    }
+
+    // 최대 아이템 수 제한
+    if (allThreads.length >= PAGINATION_LIMITS.MAX_ITEMS) {
+      console.warn(`Reached max items limit (${PAGINATION_LIMITS.MAX_ITEMS}), stopping`);
+      break;
+    }
+
     const response = await getUserThreads(accessToken, {
       limit: 50,
       since,
@@ -270,8 +299,9 @@ export async function getAllUserThreads(accessToken, options = {}) {
 
     // 다음 페이지 커서
     cursor = response.paging?.cursors?.after || null;
+    pageCount++;
 
-    console.log(`Fetched ${threads.length} threads, total: ${allThreads.length}, hasMore: ${!!cursor}`);
+    console.log(`Fetched ${threads.length} threads, total: ${allThreads.length}, page: ${pageCount}, hasMore: ${!!cursor}`);
   } while (cursor);
 
   return allThreads;

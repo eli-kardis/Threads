@@ -6,6 +6,19 @@ let dailyChart = null;
 let currentPeriod = 7;
 
 /**
+ * Chart.js 인스턴스 정리 (메모리 누수 방지)
+ */
+function cleanupChart() {
+  if (dailyChart) {
+    dailyChart.destroy();
+    dailyChart = null;
+  }
+}
+
+// 페이지 언로드 시 Chart 정리
+window.addEventListener('beforeunload', cleanupChart);
+
+/**
  * 초기화
  */
 async function init() {

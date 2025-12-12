@@ -84,8 +84,14 @@ async function setupTokenRefreshAlarm() {
   console.log('Token refresh check alarm set');
 }
 
+// 토큰 갱신 재시도 상수
+const TOKEN_REFRESH_CONFIG = {
+  MAX_RETRIES: 3,
+  RETRY_DELAY_MS: 2000
+};
+
 /**
- * 토큰 만료 체크 및 자동 갱신
+ * 토큰 만료 체크 및 자동 갱신 (재시도 로직 포함)
  */
 async function checkAndRefreshToken() {
   console.log('Checking token expiration...');
@@ -116,36 +122,49 @@ async function checkAndRefreshToken() {
     return { success: false, reason: 'no_app_secret' };
   }
 
-  try {
-    console.log('Refreshing long-lived token...');
-    const result = await threadsApi.refreshLongLivedToken(token);
+  // 재시도 로직
+  let lastError = null;
+  for (let attempt = 1; attempt <= TOKEN_REFRESH_CONFIG.MAX_RETRIES; attempt++) {
+    try {
+      console.log(`Refreshing long-lived token (attempt ${attempt}/${TOKEN_REFRESH_CONFIG.MAX_RETRIES})...`);
+      const result = await threadsApi.refreshLongLivedToken(token);
 
-    // 새 토큰 저장
-    await storage.setThreadsToken(result.access_token);
+      // 새 토큰 저장
+      await storage.setThreadsToken(result.access_token);
 
-    // 만료 시간 저장 (현재 시간 + expires_in 초)
-    const expiresAt = Date.now() + (result.expires_in * 1000);
-    await storage.setTokenExpiresAt(expiresAt);
+      // 만료 시간 저장 (현재 시간 + expires_in 초)
+      const expiresAt = Date.now() + (result.expires_in * 1000);
+      await storage.setTokenExpiresAt(expiresAt);
 
-    const newRemainingDays = Math.ceil(result.expires_in / (24 * 60 * 60));
-    console.log(`Token refreshed successfully. Valid for ${newRemainingDays} days`);
+      const newRemainingDays = Math.ceil(result.expires_in / (24 * 60 * 60));
+      console.log(`Token refreshed successfully. Valid for ${newRemainingDays} days`);
 
-    showNotification(
-      '토큰 갱신 완료',
-      `액세스 토큰이 갱신되었습니다. (${newRemainingDays}일 유효)`,
-      'success'
-    );
+      showNotification(
+        '토큰 갱신 완료',
+        `액세스 토큰이 갱신되었습니다. (${newRemainingDays}일 유효)`,
+        'success'
+      );
 
-    return { success: true, reason: 'refreshed', expiresIn: result.expires_in };
-  } catch (error) {
-    console.error('Token refresh failed:', error);
-    showNotification(
-      '토큰 갱신 실패',
-      `토큰 갱신 중 오류가 발생했습니다: ${error.message}`,
-      'error'
-    );
-    return { success: false, reason: 'refresh_failed', error: error.message };
+      return { success: true, reason: 'refreshed', expiresIn: result.expires_in };
+    } catch (error) {
+      lastError = error;
+      console.warn(`Token refresh attempt ${attempt} failed:`, error.message);
+
+      if (attempt < TOKEN_REFRESH_CONFIG.MAX_RETRIES) {
+        console.log(`Retrying in ${TOKEN_REFRESH_CONFIG.RETRY_DELAY_MS}ms...`);
+        await new Promise(resolve => setTimeout(resolve, TOKEN_REFRESH_CONFIG.RETRY_DELAY_MS));
+      }
+    }
   }
+
+  // 모든 재시도 실패
+  console.error('Token refresh failed after all retries:', lastError);
+  showNotification(
+    '토큰 갱신 실패',
+    `토큰 갱신 중 오류가 발생했습니다: ${lastError.message}`,
+    'error'
+  );
+  return { success: false, reason: 'refresh_failed', error: lastError.message };
 }
 
 /**
@@ -297,6 +316,9 @@ async function performSync() {
       throw new Error('Failed to verify user identity: ' + (myUserResult.error || 'Unknown error'));
     }
     const myUsername = myUserResult.user?.username;
+    if (!myUsername) {
+      throw new Error('Failed to retrieve username from Threads API');
+    }
     console.log(`Verified current user: @${myUsername}`);
 
     // 전체 게시글 조회 (Threads API가 since 파라미터를 지원하지 않음)
@@ -415,6 +437,9 @@ async function syncFromDate(fromDate) {
       throw new Error('Failed to verify user identity: ' + (myUserResult.error || 'Unknown error'));
     }
     const myUsername = myUserResult.user?.username;
+    if (!myUsername) {
+      throw new Error('Failed to retrieve username from Threads API');
+    }
     console.log(`Verified current user: @${myUsername}`);
 
     // fromDate부터 게시글 조회 (null이면 전체) - 페이지네이션으로 모든 게시글 조회

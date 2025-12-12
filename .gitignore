@@ -22,3 +22,15 @@ build/
 
 # Icon generator (development only)
 create-icons.html
+
+# Test coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Jest cache
+.jest-cache/
+
+# Test reports
+test-results/
+junit.xml
