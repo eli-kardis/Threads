@@ -48,11 +48,6 @@ const elements = {
   resetBtn: document.getElementById('resetBtn'),
   saveStatus: document.getElementById('saveStatus'),
   loadingOverlay: document.getElementById('loadingOverlay'),
-  // 인사이트
-  insightsSection: document.getElementById('insightsSection'),
-  insightsPeriod: document.getElementById('insightsPeriod'),
-  saveInsightsBtn: document.getElementById('saveInsightsBtn'),
-  insightsStatus: document.getElementById('insightsStatus')
 };
 
 // 현재 설정
@@ -79,6 +74,7 @@ async function loadSettings() {
       'threadsUserId',
       'notionSecret',
       'notionDatabaseId',
+      'notionInsightsDatabaseId',
       'notionWorkspaceName',
       'fieldMapping',
       'syncOptions'
@@ -153,10 +149,6 @@ async function loadSettings() {
           setFieldMappings(data.fieldMapping);
         }
 
-        // 인사이트 섹션 표시
-        if (elements.insightsSection) {
-          elements.insightsSection.style.display = 'block';
-        }
       }
     }
   } catch (error) {
@@ -199,10 +191,6 @@ function setupEventListeners() {
     }
   });
 
-  // 인사이트 저장 버튼
-  if (elements.saveInsightsBtn) {
-    elements.saveInsightsBtn.addEventListener('click', saveInsights);
-  }
 }
 
 /**
@@ -778,43 +766,6 @@ async function resetSettings() {
     showStatus('saveStatus', `초기화 실패: ${error.message}`, 'error');
   } finally {
     showLoading(false);
-  }
-}
-
-/**
- * 인사이트를 Notion에 저장
- */
-async function saveInsights() {
-  const period = parseInt(elements.insightsPeriod.value);
-
-  elements.saveInsightsBtn.disabled = true;
-  elements.saveInsightsBtn.textContent = '저장 중...';
-  showStatus('insightsStatus', '인사이트를 저장하는 중...', 'info');
-
-  try {
-    const result = await chrome.runtime.sendMessage({
-      type: 'SAVE_INSIGHTS_TO_NOTION',
-      period
-    });
-
-    if (result.success) {
-      if (result.alreadyRecorded) {
-        showStatus('insightsStatus', '오늘 이미 기록되었습니다', 'info');
-      } else {
-        const stats = result.insights;
-        showStatus('insightsStatus',
-          `저장 완료! 조회수: ${stats.views?.toLocaleString() || 0}, 좋아요: ${stats.likes?.toLocaleString() || 0}`,
-          'success'
-        );
-      }
-    } else {
-      showStatus('insightsStatus', `저장 실패: ${result.error}`, 'error');
-    }
-  } catch (error) {
-    showStatus('insightsStatus', `저장 실패: ${error.message}`, 'error');
-  } finally {
-    elements.saveInsightsBtn.disabled = false;
-    elements.saveInsightsBtn.textContent = '📊 인사이트 저장';
   }
 }
 

@@ -406,6 +406,41 @@ export async function findPageBySourceUrl(secret, databaseId, sourceUrl, sourceU
 // === 인사이트 DB 관련 함수 ===
 
 /**
+ * 워크스페이스 루트에 인사이트 DB 생성 시도
+ * 내부 Integration은 워크스페이스 루트에 페이지를 만들 수 없으므로
+ * 공개 Integration인 경우에만 작동
+ * @param {string} secret
+ * @returns {Promise<Object>}
+ */
+export async function createInsightsDatabaseInWorkspace(secret) {
+  // 워크스페이스 루트에 페이지 생성 시도 (공개 Integration만 가능)
+  const pageData = {
+    properties: {
+      title: {
+        title: [
+          {
+            type: 'text',
+            text: { content: '📊 Threads 인사이트' }
+          }
+        ]
+      }
+    },
+    icon: {
+      type: 'emoji',
+      emoji: '📊'
+    }
+  };
+
+  const page = await notionRequest('/pages', secret, {
+    method: 'POST',
+    body: JSON.stringify(pageData)
+  });
+
+  // 생성된 페이지 안에 DB 생성
+  return await createInsightsDatabase(secret, page.id);
+}
+
+/**
  * 인사이트 데이터베이스 생성
  * @param {string} secret
  * @param {string} parentPageId - 부모 페이지 ID (기존 템플릿)
@@ -413,7 +448,7 @@ export async function findPageBySourceUrl(secret, databaseId, sourceUrl, sourceU
  */
 export async function createInsightsDatabase(secret, parentPageId) {
   const databaseData = {
-    parent: { page_id: parentPageId },
+    parent: { type: 'page_id', page_id: parentPageId },
     title: [
       {
         type: 'text',

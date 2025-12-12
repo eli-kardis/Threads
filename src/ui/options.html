@@ -280,6 +280,39 @@
       margin-top: 20px;
     }
 
+    .info-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: #F3F4F6;
+      border-radius: 8px;
+    }
+
+    .info-value {
+      flex: 1;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .btn-text {
+      background: none;
+      border: none;
+      color: #6366F1;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 4px 8px;
+    }
+
+    .btn-text:hover {
+      text-decoration: underline;
+    }
+
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
     /* Status Messages */
     .status-message {
       padding: 12px 16px;
@@ -657,29 +690,6 @@
 
     <div class="status-message" id="saveStatus"></div>
 
-    <!-- Insights Section -->
-    <section class="card" id="insightsSection" style="display: none;">
-      <h2 class="card-title">📊 계정 인사이트</h2>
-      <p class="card-description">Threads 계정 전체 통계를 Notion에 저장합니다.</p>
-
-      <div class="form-group">
-        <label class="label">기간 선택</label>
-        <select id="insightsPeriod" class="input-field">
-          <option value="7">최근 7일</option>
-          <option value="14">최근 14일</option>
-          <option value="30" selected>최근 30일</option>
-          <option value="90">최근 90일</option>
-        </select>
-      </div>
-
-      <div class="btn-row">
-        <button class="btn btn-secondary" id="saveInsightsBtn">
-          📊 인사이트 저장
-        </button>
-      </div>
-
-      <div class="status-message" id="insightsStatus"></div>
-    </section>
   </main>
 
   <footer class="footer">
