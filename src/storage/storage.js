@@ -244,7 +244,7 @@ export async function setSyncOptions(options) {
  */
 export async function getSyncOptions() {
   const options = await get(STORAGE_KEYS.SYNC_OPTIONS);
-  return options || { autoSync: true, syncInterval: 1, dailyStatsRefresh: true };
+  return options || { autoSync: true, syncInterval: 5, dailyStatsRefresh: true };
 }
 
 // === 동기화 히스토리 관리 ===

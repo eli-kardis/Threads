@@ -39,7 +39,7 @@ async function setupSyncAlarm() {
     chrome.alarms.create('syncThreads', {
       periodInMinutes: options.syncInterval || 5
     });
-    console.log('Sync alarm set:', options.syncInterval, 'minutes');
+    console.log('Sync alarm set:', options.syncInterval || 5, 'minutes');
   } else {
     chrome.alarms.clear('syncThreads');
     console.log('Sync alarm cleared');
@@ -172,7 +172,7 @@ async function checkAndRefreshToken() {
  */
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'syncThreads') {
-    await performSync();
+    await performSync({ limit: 10 }); // 자동 동기화: 10개만
   } else if (alarm.name === 'dailyStatsRefresh') {
     await refreshAllPostsStats();
   } else if (alarm.name === 'tokenRefreshCheck') {
@@ -200,7 +200,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleMessage(message, sender) {
   switch (message.type) {
     case 'SYNC_NOW':
-      return await performSync();
+      return await performSync({ limit: 30 }); // 팝업 버튼: 30개
 
     case 'GET_SYNC_STATUS':
       return await getSyncStatus();
@@ -290,8 +290,11 @@ async function getSyncStatus() {
 
 /**
  * 동기화 수행
+ * @param {Object} options - { limit: number }
  */
-async function performSync() {
+async function performSync(options = {}) {
+  const { limit = 30 } = options;
+
   if (isSyncing) {
     return { success: false, message: 'Sync already in progress' };
   }
@@ -308,7 +311,6 @@ async function performSync() {
 
   try {
     const settings = await storage.getAllSettings();
-    const lastSyncTime = await storage.getLastSyncTime();
 
     // 동기화 시작 시 현재 본인 username 조회 (매번 fresh하게)
     const myUserResult = await threadsApi.testConnection(settings.threadsToken);
@@ -321,21 +323,16 @@ async function performSync() {
     }
     console.log(`Verified current user: @${myUsername}`);
 
-    // 전체 게시글 조회 (Threads API가 since 파라미터를 지원하지 않음)
-    const allThreads = await threadsApi.getAllUserThreads(
-      settings.threadsToken,
-      {} // since 제거 - API가 지원하지 않음
-    );
+    // 최근 게시글만 조회 (최신순)
+    const response = await threadsApi.getUserThreads(settings.threadsToken, { limit });
+    const recentThreads = (response.data || [])
+      .filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE')
+      .map(threadsApi.normalizeThread);
 
-    // 클라이언트 측 필터링: lastSyncTime 이후 글만
-    const newThreads = lastSyncTime
-      ? allThreads.filter(t => new Date(t.createdAt) > new Date(lastSyncTime))
-      : allThreads;
+    console.log(`Found ${recentThreads.length} recent threads to check`);
 
-    console.log(`Found ${newThreads.length} new threads to sync (total fetched: ${allThreads.length})`);
-
-    // 각 게시글을 Notion에 동기화
-    for (const thread of newThreads) {
+    // 각 게시글을 Notion에 동기화 (ID 기반으로 이미 동기화된 글 스킵)
+    for (const thread of recentThreads) {
       try {
         // 본인 글인지 검증
         if (thread.username !== myUsername) {

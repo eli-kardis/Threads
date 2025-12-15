@@ -661,7 +661,7 @@ async function saveSettings() {
       },
       syncOptions: {
         autoSync: true,
-        syncInterval: 1,
+        syncInterval: 5,
         dailyStatsRefresh: true
       }
     };
