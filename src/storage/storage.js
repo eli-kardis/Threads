@@ -440,7 +440,7 @@ export async function addThreadPageMapping(threadId, notionPageId, sourceUrl, po
     sourceUrl,
     postCreatedAt,
     title: title || null,
-    insights: insights || { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 },
+    insights: insights || { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0, shares: 0 },
     insightsUpdatedAt: new Date().toISOString()
   };
 
@@ -483,7 +483,8 @@ export async function updateThreadInsights(threadId, insights) {
     likes: insights.likes || 0,
     replies: insights.replies || 0,
     reposts: insights.reposts || 0,
-    quotes: insights.quotes || 0
+    quotes: insights.quotes || 0,
+    shares: insights.shares || 0
   };
   mappings[index].insightsUpdatedAt = new Date().toISOString();
 

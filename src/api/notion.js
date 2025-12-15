@@ -262,10 +262,17 @@ function buildProperties(threadPost, fieldMapping) {
     };
   }
 
-  // 공유(인용) 필드 (Number)
+  // 인용 필드 (Number)
   if (fieldMapping.quotes && threadPost.quotes !== undefined) {
     properties[fieldMapping.quotes] = {
       number: threadPost.quotes
+    };
+  }
+
+  // 공유 필드 (Number)
+  if (fieldMapping.shares && threadPost.shares !== undefined) {
+    properties[fieldMapping.shares] = {
+      number: threadPost.shares
     };
   }
 
@@ -382,6 +389,9 @@ export async function updatePageStats(secret, pageId, stats, fieldMapping) {
   }
   if (fieldMapping.quotes && stats.quotes !== undefined) {
     properties[fieldMapping.quotes] = { number: stats.quotes };
+  }
+  if (fieldMapping.shares && stats.shares !== undefined) {
+    properties[fieldMapping.shares] = { number: stats.shares };
   }
 
   if (Object.keys(properties).length === 0) {

@@ -36,6 +36,7 @@ const elements = {
   mappingReplies: document.getElementById('mappingReplies'),
   mappingReposts: document.getElementById('mappingReposts'),
   mappingQuotes: document.getElementById('mappingQuotes'),
+  mappingShares: document.getElementById('mappingShares'),
   // 작성자 필드 매핑
   mappingUsername: document.getElementById('mappingUsername'),
   // 과거 게시글 동기화
@@ -549,6 +550,7 @@ function updateFieldOptions(properties) {
     elements.mappingReplies,
     elements.mappingReposts,
     elements.mappingQuotes,
+    elements.mappingShares,
     // 작성자 필드
     elements.mappingUsername
   ];
@@ -594,7 +596,8 @@ function autoMatchFields(fields) {
     mappingLikes: ['좋아요', 'likes'],
     mappingReplies: ['답글', 'replies', '댓글'],
     mappingReposts: ['리포스트', 'reposts'],
-    mappingQuotes: ['인용', 'quotes', '공유'],
+    mappingQuotes: ['인용', 'quotes'],
+    mappingShares: ['공유', 'shares'],
     mappingUsername: ['작성자', 'username', 'author']
   };
 
@@ -626,6 +629,7 @@ function setFieldMappings(mapping) {
   if (mapping.replies) elements.mappingReplies.value = mapping.replies;
   if (mapping.reposts) elements.mappingReposts.value = mapping.reposts;
   if (mapping.quotes) elements.mappingQuotes.value = mapping.quotes;
+  if (mapping.shares) elements.mappingShares.value = mapping.shares;
   // 작성자 필드
   if (mapping.username) elements.mappingUsername.value = mapping.username;
 }
@@ -656,6 +660,7 @@ async function saveSettings() {
         replies: elements.mappingReplies.value,
         reposts: elements.mappingReposts.value,
         quotes: elements.mappingQuotes.value,
+        shares: elements.mappingShares.value,
         // 작성자 필드
         username: elements.mappingUsername.value
       },

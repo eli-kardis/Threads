@@ -109,6 +109,8 @@ function updateStatsCards(insights) {
   document.getElementById('likesCount').textContent = formatNumber(insights.likes || 0);
   document.getElementById('repliesCount').textContent = formatNumber(insights.replies || 0);
   document.getElementById('repostsCount').textContent = formatNumber(insights.reposts || 0);
+  document.getElementById('quotesCount').textContent = formatNumber(insights.quotes || 0);
+  document.getElementById('sharesCount').textContent = formatNumber(insights.shares || 0);
 }
 
 /**
@@ -247,15 +249,17 @@ function updateBestTimeAnalysis(mappings) {
 }
 
 /**
- * 참여율 계산 (조회수 대비 좋아요/댓글/리포스트)
+ * 참여율 계산 (조회수 대비 좋아요/댓글/리포스트/인용/공유)
  */
 function calculateEngagementRate(insights) {
   const views = insights.views || 0;
   if (views === 0) return 0;
 
   const engagementCount = (insights.likes || 0) +
-                          (insights.replies || 0) * 2 +
-                          (insights.reposts || 0) * 1.5;
+                          (insights.replies || 0) * 2 +      // 댓글 2배
+                          (insights.reposts || 0) * 1.5 +    // 리포스트 1.5배
+                          (insights.quotes || 0) * 2 +       // 인용 2배
+                          (insights.shares || 0) * 1.5;      // 공유 1.5배
 
   return (engagementCount / views) * 100;
 }
@@ -378,7 +382,7 @@ function updateHistoryTable(history, mappings) {
   if (mappingsArray.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="empty-state">동기화된 스레드가 없습니다</td>
+        <td colspan="9" class="empty-state">동기화된 스레드가 없습니다</td>
       </tr>
     `;
     return;
@@ -399,6 +403,8 @@ function updateHistoryTable(history, mappings) {
         <td>${formatNumber(insights.likes || 0)}</td>
         <td>${formatNumber(insights.replies || 0)}</td>
         <td>${formatNumber(insights.reposts || 0)}</td>
+        <td>${formatNumber(insights.quotes || 0)}</td>
+        <td>${formatNumber(insights.shares || 0)}</td>
         <td>${formatDateTime(mapping.postCreatedAt)}</td>
         <td>
           ${mapping.notionPageId

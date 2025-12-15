@@ -724,24 +724,10 @@ async function refreshAllPostsStats() {
     return;
   }
 
-  // 1. insights 없는 게시글 (백필 대상)
-  const missingInsights = mappings.filter(m => !m.insights);
+  // 모든 게시글 새로고침 (임시)
+  const toRefresh = mappings;
 
-  // 2. 게시일 기준 7일 이내 게시글 (정기 새로고침)
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  const recentMappings = mappings.filter(m => {
-    if (!m.postCreatedAt) return false;
-    return new Date(m.postCreatedAt) >= sevenDaysAgo;
-  });
-
-  // 합쳐서 중복 제거
-  const toRefresh = [...new Map(
-    [...missingInsights, ...recentMappings].map(m => [m.threadId, m])
-  ).values()];
-
-  console.log(`Refresh targets: ${missingInsights.length} missing insights + ${recentMappings.length} recent = ${toRefresh.length} total (deduped)`);
+  console.log(`Refresh targets: ${toRefresh.length} total (all posts)`);
 
   if (toRefresh.length === 0) {
     console.log('No posts to refresh');
@@ -816,6 +802,7 @@ async function getAggregatedInsights(period) {
     replies: 0,
     reposts: 0,
     quotes: 0,
+    shares: 0,
     postCount: filteredMappings.length,
     period,
     fetchedAt: new Date().toISOString()
@@ -828,6 +815,7 @@ async function getAggregatedInsights(period) {
       aggregated.replies += mapping.insights.replies || 0;
       aggregated.reposts += mapping.insights.reposts || 0;
       aggregated.quotes += mapping.insights.quotes || 0;
+      aggregated.shares += mapping.insights.shares || 0;
     }
   }
 

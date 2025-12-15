@@ -154,7 +154,7 @@ export async function getAccountInsights(accessToken, options = {}) {
 export async function getThreadInsights(accessToken, threadId) {
   try {
     const response = await threadsRequest(`/${threadId}/insights`, accessToken, {
-      metric: 'views,likes,replies,reposts,quotes'
+      metric: 'views,likes,replies,reposts,quotes,shares'
     });
 
     // API 응답을 간단한 객체로 변환
@@ -163,7 +163,8 @@ export async function getThreadInsights(accessToken, threadId) {
       likes: 0,
       replies: 0,
       reposts: 0,
-      quotes: 0
+      quotes: 0,
+      shares: 0
     };
 
     if (response.data) {
@@ -176,7 +177,7 @@ export async function getThreadInsights(accessToken, threadId) {
     return stats;
   } catch (error) {
     console.warn(`Failed to get insights for thread ${threadId}:`, error.message);
-    return { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 };
+    return { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0, shares: 0 };
   }
 }
 
@@ -204,7 +205,8 @@ export function normalizeThread(apiThread, insights = null) {
     likes: insights?.likes || 0,
     replies: insights?.replies || 0,
     reposts: insights?.reposts || 0,
-    quotes: insights?.quotes || 0
+    quotes: insights?.quotes || 0,
+    shares: insights?.shares || 0
   };
 }
 
