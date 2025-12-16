@@ -2,6 +2,76 @@
  * Options 페이지 로직
  */
 
+// 디버그 모드 (프로덕션에서는 false)
+const DEBUG = false;
+const log = DEBUG ? console.log.bind(console) : () => {};
+
+/**
+ * 연결됨 상태 UI 생성 (XSS-safe)
+ * @param {string} service - 'threads' 또는 'notion'
+ * @param {string} subText - 표시할 부가 텍스트 (User ID 또는 Workspace 이름)
+ * @returns {HTMLElement}
+ */
+function createConnectedUI(service, subText) {
+  const container = document.createElement('div');
+  container.style.cssText = 'background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;';
+
+  const icon = document.createElement('span');
+  icon.style.fontSize = '24px';
+  icon.textContent = '✅';
+
+  const title = document.createElement('p');
+  title.style.cssText = 'margin-top: 8px; color: #065F46; font-weight: 600;';
+  title.textContent = service === 'threads' ? 'Threads 연결됨' : 'Notion 연결됨';
+
+  const sub = document.createElement('p');
+  sub.style.cssText = 'font-size: 12px; color: #047857; margin-top: 4px;';
+  sub.textContent = service === 'threads' ? `User ID: ${subText || 'N/A'}` : (subText || 'Workspace');
+
+  container.appendChild(icon);
+  container.appendChild(title);
+  container.appendChild(sub);
+
+  return container;
+}
+
+/**
+ * 로그인 버튼 UI 생성 (XSS-safe)
+ * @param {string} service - 'threads' 또는 'notion'
+ * @param {Function} clickHandler - 클릭 핸들러
+ * @returns {HTMLElement}
+ */
+function createLoginButtonUI(service, clickHandler) {
+  const container = document.createDocumentFragment();
+
+  const button = document.createElement('button');
+  button.className = 'btn btn-primary';
+  button.id = service === 'threads' ? 'threadsLoginBtn' : 'notionLoginBtn';
+  button.style.cssText = 'width: 100%; padding: 14px; font-size: 16px;';
+
+  if (service === 'threads') {
+    button.style.background = 'linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D)';
+    button.textContent = '🧵 Threads로 로그인';
+  } else {
+    button.style.background = '#000';
+    button.textContent = '📝 Notion으로 연결';
+  }
+
+  button.addEventListener('click', clickHandler);
+
+  const hint = document.createElement('p');
+  hint.className = 'form-hint';
+  hint.style.cssText = 'text-align: center; margin-top: 8px;';
+  hint.textContent = service === 'threads'
+    ? '버튼을 클릭하면 Meta 로그인 페이지로 이동합니다'
+    : '버튼을 클릭하면 Notion 로그인 페이지로 이동합니다';
+
+  container.appendChild(button);
+  container.appendChild(hint);
+
+  return container;
+}
+
 // Threads OAuth 설정
 const THREADS_OAUTH_CONFIG = {
   clientId: '1571587097603276',
@@ -88,13 +158,7 @@ async function loadSettings() {
       // OAuth 섹션을 연결됨 상태로 표시
       const oauthSection = document.getElementById('oauthSection');
       if (oauthSection) {
-        oauthSection.innerHTML = `
-          <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
-            <span style="font-size: 24px;">✅</span>
-            <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Threads 연결됨</p>
-            <p style="font-size: 12px; color: #047857; margin-top: 4px;">User ID: ${data.threadsUserId || 'N/A'}</p>
-          </div>
-        `;
+        oauthSection.replaceChildren(createConnectedUI('threads', data.threadsUserId));
       }
 
       // 토큰 유효성 검증
@@ -104,20 +168,12 @@ async function loadSettings() {
           // 만료된 경우: 경고 표시 및 OAuth 섹션 복구
           showStatus('threadsStatus', '⚠️ 토큰이 만료되었습니다. 다시 로그인해주세요.', 'error');
           if (oauthSection) {
-            oauthSection.innerHTML = `
-              <button class="btn btn-primary" id="threadsLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D);">
-                🧵 Threads로 로그인
-              </button>
-              <p class="form-hint" style="text-align: center; margin-top: 8px;">
-                버튼을 클릭하면 Meta 로그인 페이지로 이동합니다
-              </p>
-            `;
-            document.getElementById('threadsLoginBtn').addEventListener('click', startOAuthFlow);
+            oauthSection.replaceChildren(createLoginButtonUI('threads', startThreadsOAuthFlow));
           }
         }
       } catch (error) {
         // 검증 실패 시 무시
-        console.warn('Token status check failed:', error);
+        log('Token status check failed:', error);
       }
     }
 
@@ -126,14 +182,7 @@ async function loadSettings() {
       // OAuth 섹션을 연결됨 상태로 표시
       const notionOauthSection = document.getElementById('notionOauthSection');
       if (notionOauthSection) {
-        const workspaceName = data.notionWorkspaceName || 'Workspace';
-        notionOauthSection.innerHTML = `
-          <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
-            <span style="font-size: 24px;">✅</span>
-            <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Notion 연결됨</p>
-            <p style="font-size: 12px; color: #047857; margin-top: 4px;">${workspaceName}</p>
-          </div>
-        `;
+        notionOauthSection.replaceChildren(createConnectedUI('notion', data.notionWorkspaceName));
       }
 
       elements.loadDbListBtn.disabled = false;
@@ -259,24 +308,21 @@ async function startThreadsOAuthFlow() {
     // 만료 시간 저장 (있는 경우)
     if (tokenData.expires_in) {
       const expiresAt = Date.now() + (tokenData.expires_in * 1000);
-      await chrome.storage.local.set({ tokenExpiresAt: expiresAt });
+      await chrome.storage.local.set({ threadsTokenExpiresAt: expiresAt });
     }
 
     // UI 업데이트
     showStatus('threadsStatus', '✅ Threads 연결 성공!', 'success');
 
     // OAuth 섹션 숨기고 연결됨 표시
-    document.getElementById('oauthSection').innerHTML = `
-      <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
-        <span style="font-size: 24px;">✅</span>
-        <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Threads 연결됨</p>
-        <p style="font-size: 12px; color: #047857; margin-top: 4px;">User ID: ${tokenData.user_id || 'N/A'}</p>
-      </div>
-    `;
+    const oauthSection = document.getElementById('oauthSection');
+    if (oauthSection) {
+      oauthSection.replaceChildren(createConnectedUI('threads', tokenData.user_id));
+    }
 
   } catch (error) {
     console.error('OAuth error:', error);
-    showStatus('threadsStatus', `❌ 로그인 실패: ${error.message}`, 'error');
+    showStatus('threadsStatus', '❌ 로그인에 실패했습니다. 다시 시도해주세요.', 'error');
 
     // 버튼 복원
     if (loginBtn) {
@@ -357,13 +403,7 @@ async function startNotionOAuthFlow() {
     // OAuth 섹션 업데이트
     const notionOauthSection = document.getElementById('notionOauthSection');
     if (notionOauthSection) {
-      notionOauthSection.innerHTML = `
-        <div style="background: #D1FAE5; padding: 16px; border-radius: 10px; text-align: center;">
-          <span style="font-size: 24px;">✅</span>
-          <p style="margin-top: 8px; color: #065F46; font-weight: 600;">Notion 연결됨</p>
-          <p style="font-size: 12px; color: #047857; margin-top: 4px;">${tokenData.workspace_name || 'Workspace'}</p>
-        </div>
-      `;
+      notionOauthSection.replaceChildren(createConnectedUI('notion', tokenData.workspace_name));
     }
 
     // DB 목록 버튼 활성화 및 자동 로드
@@ -372,7 +412,7 @@ async function startNotionOAuthFlow() {
 
   } catch (error) {
     console.error('Notion OAuth error:', error);
-    showStatus('notionStatus', `❌ 연결 실패: ${error.message}`, 'error');
+    showStatus('notionStatus', '❌ 연결에 실패했습니다. 다시 시도해주세요.', 'error');
 
     // 버튼 복원
     if (loginBtn) {
@@ -419,7 +459,8 @@ async function syncFromDate() {
       showStatus('syncAllStatus', `동기화 실패: ${result.error || result.message}`, 'error');
     }
   } catch (error) {
-    showStatus('syncAllStatus', `오류: ${error.message}`, 'error');
+    console.error('Sync error:', error);
+    showStatus('syncAllStatus', '동기화 중 오류가 발생했습니다.', 'error');
   } finally {
     elements.syncAllBtn.disabled = false;
   }
@@ -478,7 +519,8 @@ async function loadDatabaseList() {
 
     showStatus('notionStatus', `${databases.length}개의 데이터베이스를 찾았습니다`, 'success');
   } catch (error) {
-    showStatus('notionStatus', `목록 로드 실패: ${error.message}`, 'error');
+    console.error('Database list load error:', error);
+    showStatus('notionStatus', '데이터베이스 목록을 불러오지 못했습니다.', 'error');
   } finally {
     elements.loadDbListBtn.disabled = false;
   }
@@ -520,15 +562,21 @@ async function loadNotionFields() {
     }
 
     const database = await response.json();
+
+    if (!database.properties) {
+      throw new Error('데이터베이스 속성을 찾을 수 없습니다');
+    }
+
     const properties = database.properties;
 
     // 필드 옵션 생성
-    console.log('Notion properties:', Object.keys(properties));
+    log('Notion properties:', Object.keys(properties));
     updateFieldOptions(properties);
 
     showStatus('notionStatus', '필드 목록을 불러왔습니다', 'success');
   } catch (error) {
-    showStatus('notionStatus', `필드 로드 실패: ${error.message}`, 'error');
+    console.error('Field load error:', error);
+    showStatus('notionStatus', '필드 목록을 불러오지 못했습니다.', 'error');
   } finally {
     elements.loadFieldsBtn.disabled = false;
     showLoading(false);
@@ -585,7 +633,7 @@ function updateFieldOptions(properties) {
  */
 function autoMatchFields(fields) {
   // 디버깅: 필드명 확인
-  console.log('Auto-matching fields:', fields.map(f => f.name));
+  log('Auto-matching fields:', fields.map(f => f.name));
 
   const matchRules = {
     mappingTitle: ['제목', 'title', '첫 줄'],
@@ -711,7 +759,8 @@ async function saveSettings() {
       }
     }
   } catch (error) {
-    showStatus('saveStatus', `저장 실패: ${error.message}`, 'error');
+    console.error('Save error:', error);
+    showStatus('saveStatus', '설정 저장에 실패했습니다.', 'error');
   } finally {
     elements.saveBtn.disabled = false;
     showLoading(false);
@@ -738,29 +787,13 @@ async function resetSettings() {
     // Threads OAuth 섹션 복원
     const oauthSection = document.getElementById('oauthSection');
     if (oauthSection) {
-      oauthSection.innerHTML = `
-        <button class="btn btn-primary" id="threadsLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: linear-gradient(135deg, #405DE6, #833AB4, #C13584, #E1306C, #FD1D1D);">
-          🧵 Threads로 로그인
-        </button>
-        <p class="form-hint" style="text-align: center; margin-top: 8px;">
-          버튼을 클릭하면 Meta 로그인 페이지로 이동합니다
-        </p>
-      `;
-      document.getElementById('threadsLoginBtn').addEventListener('click', startThreadsOAuthFlow);
+      oauthSection.replaceChildren(createLoginButtonUI('threads', startThreadsOAuthFlow));
     }
 
     // Notion OAuth 섹션 복원
     const notionOauthSection = document.getElementById('notionOauthSection');
     if (notionOauthSection) {
-      notionOauthSection.innerHTML = `
-        <button class="btn btn-primary" id="notionLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: #000;">
-          📝 Notion으로 연결
-        </button>
-        <p class="form-hint" style="text-align: center; margin-top: 8px;">
-          버튼을 클릭하면 Notion 로그인 페이지로 이동합니다
-        </p>
-      `;
-      document.getElementById('notionLoginBtn').addEventListener('click', startNotionOAuthFlow);
+      notionOauthSection.replaceChildren(createLoginButtonUI('notion', startNotionOAuthFlow));
     }
 
     // 필드 매핑 초기화
@@ -778,7 +811,8 @@ async function resetSettings() {
 
     showStatus('saveStatus', '설정이 초기화되었습니다', 'info');
   } catch (error) {
-    showStatus('saveStatus', `초기화 실패: ${error.message}`, 'error');
+    console.error('Reset error:', error);
+    showStatus('saveStatus', '설정 초기화에 실패했습니다.', 'error');
   } finally {
     showLoading(false);
   }

@@ -6,16 +6,23 @@
 import * as storage from './storage/storage.js';
 import * as notionApi from './api/notion.js';
 import * as threadsApi from './api/threads.js';
-import { generateId, formatDate } from './shared/utils.js';
+import { generateId, formatDate, sleep } from './shared/utils.js';
 
-// 동기화 상태
-let isSyncing = false;
+// 디버그 모드 (프로덕션에서는 false)
+const DEBUG = false;
+const log = DEBUG ? console.log.bind(console) : () => {};
+
+// 동기화 상태 (Promise 기반 락)
+let syncPromise = null;
+
+// isSyncing getter (하위 호환성 유지)
+const isSyncing = () => syncPromise !== null;
 
 /**
  * 확장 프로그램 설치/업데이트 시 초기화
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log('Threads to Notion Sync installed:', details.reason);
+  log('Threads to Notion Sync installed:', details.reason);
 
   if (details.reason === 'install') {
     // 첫 설치 시 설정 페이지 열기
@@ -39,10 +46,10 @@ async function setupSyncAlarm() {
     chrome.alarms.create('syncThreads', {
       periodInMinutes: options.syncInterval || 5
     });
-    console.log('Sync alarm set:', options.syncInterval || 5, 'minutes');
+    log('Sync alarm set:', options.syncInterval || 5, 'minutes');
   } else {
     chrome.alarms.clear('syncThreads');
-    console.log('Sync alarm cleared');
+    log('Sync alarm cleared');
   }
 
   // 매일 아침 9시 통계 새로고침 알람 설정
@@ -67,10 +74,10 @@ async function setupDailyStatsAlarm(enabled) {
       when: next9am.getTime(),
       periodInMinutes: 24 * 60 // 24시간마다 반복
     });
-    console.log('Daily stats refresh alarm set for:', next9am.toLocaleString());
+    log('Daily stats refresh alarm set for:', next9am.toLocaleString());
   } else {
     chrome.alarms.clear('dailyStatsRefresh');
-    console.log('Daily stats refresh alarm cleared');
+    log('Daily stats refresh alarm cleared');
   }
 }
 
@@ -81,7 +88,7 @@ async function setupTokenRefreshAlarm() {
   chrome.alarms.create('tokenRefreshCheck', {
     periodInMinutes: 24 * 60 // 24시간마다
   });
-  console.log('Token refresh check alarm set');
+  log('Token refresh check alarm set');
 }
 
 // 토큰 갱신 재시도 상수
@@ -94,11 +101,11 @@ const TOKEN_REFRESH_CONFIG = {
  * 토큰 만료 체크 및 자동 갱신 (재시도 로직 포함)
  */
 async function checkAndRefreshToken() {
-  console.log('Checking token expiration...');
+  log('Checking token expiration...');
 
   const token = await storage.getThreadsToken();
   if (!token) {
-    console.log('No token configured');
+    log('No token configured');
     return { success: false, reason: 'no_token' };
   }
 
@@ -106,7 +113,7 @@ async function checkAndRefreshToken() {
   const isExpiringSoon = await storage.isTokenExpiringSoon();
   if (!isExpiringSoon) {
     const remainingDays = await storage.getTokenRemainingDays();
-    console.log(`Token is still valid (${remainingDays} days remaining)`);
+    log(`Token is still valid (${remainingDays} days remaining)`);
     return { success: true, reason: 'not_expiring_soon', remainingDays };
   }
 
@@ -126,7 +133,7 @@ async function checkAndRefreshToken() {
   let lastError = null;
   for (let attempt = 1; attempt <= TOKEN_REFRESH_CONFIG.MAX_RETRIES; attempt++) {
     try {
-      console.log(`Refreshing long-lived token (attempt ${attempt}/${TOKEN_REFRESH_CONFIG.MAX_RETRIES})...`);
+      log(`Refreshing long-lived token (attempt ${attempt}/${TOKEN_REFRESH_CONFIG.MAX_RETRIES})...`);
       const result = await threadsApi.refreshLongLivedToken(token);
 
       // 새 토큰 저장
@@ -137,7 +144,7 @@ async function checkAndRefreshToken() {
       await storage.setTokenExpiresAt(expiresAt);
 
       const newRemainingDays = Math.ceil(result.expires_in / (24 * 60 * 60));
-      console.log(`Token refreshed successfully. Valid for ${newRemainingDays} days`);
+      log(`Token refreshed successfully. Valid for ${newRemainingDays} days`);
 
       showNotification(
         '토큰 갱신 완료',
@@ -151,7 +158,7 @@ async function checkAndRefreshToken() {
       console.warn(`Token refresh attempt ${attempt} failed:`, error.message);
 
       if (attempt < TOKEN_REFRESH_CONFIG.MAX_RETRIES) {
-        console.log(`Retrying in ${TOKEN_REFRESH_CONFIG.RETRY_DELAY_MS}ms...`);
+        log(`Retrying in ${TOKEN_REFRESH_CONFIG.RETRY_DELAY_MS}ms...`);
         await new Promise(resolve => setTimeout(resolve, TOKEN_REFRESH_CONFIG.RETRY_DELAY_MS));
       }
     }
@@ -276,7 +283,7 @@ async function getSyncStatus() {
 
   return {
     isConfigured,
-    isSyncing,
+    isSyncing: isSyncing(),
     lastSyncTime,
     autoSync: options.autoSync,
     syncInterval: options.syncInterval,
@@ -294,8 +301,9 @@ async function getSyncStatus() {
  * - 마지막 동기화된 게시글 이후 새 글 동기화
  */
 async function popupSync() {
-  if (isSyncing) {
-    return { success: false, message: 'Sync already in progress' };
+  // Promise 기반 락: 이미 동기화 중이면 기존 작업 결과 반환
+  if (syncPromise) {
+    return syncPromise;
   }
 
   const isConfigured = await storage.isConfigured();
@@ -303,7 +311,20 @@ async function popupSync() {
     return { success: false, message: 'Please configure settings first' };
   }
 
-  isSyncing = true;
+  // 실제 동기화 로직을 Promise로 래핑
+  syncPromise = doPopupSync();
+
+  try {
+    return await syncPromise;
+  } finally {
+    syncPromise = null;
+  }
+}
+
+/**
+ * 팝업 동기화 실제 로직
+ */
+async function doPopupSync() {
   let refreshedCount = 0;
   let syncedCount = 0;
 
@@ -320,7 +341,7 @@ async function popupSync() {
       return new Date(m.postCreatedAt) >= fourteenDaysAgo;
     });
 
-    console.log(`Refreshing insights for ${recentMappings.length} posts (last 14 days)`);
+    log(`Refreshing insights for ${recentMappings.length} posts (last 14 days)`);
 
     for (const mapping of recentMappings) {
       try {
@@ -328,7 +349,7 @@ async function popupSync() {
         await notionApi.updatePageStats(settings.notionSecret, mapping.notionPageId, insights, settings.fieldMapping || {});
         await storage.updateThreadInsights(mapping.threadId, insights);
         refreshedCount++;
-        await delay(350); // Rate limit
+        await sleep(350); // Rate limit
       } catch (err) {
         console.error(`Failed to refresh insights for ${mapping.threadId}:`, err);
       }
@@ -346,7 +367,7 @@ async function popupSync() {
       }
     }
 
-    console.log(`Latest synced post time: ${latestPostTime?.toISOString() || 'none'}`);
+    log(`Latest synced post time: ${latestPostTime?.toISOString() || 'none'}`);
 
     // 본인 username 조회
     const myUserResult = await threadsApi.testConnection(settings.threadsToken);
@@ -380,14 +401,14 @@ async function popupSync() {
         await syncThreadToNotion(thread, settings);
         await storage.addSyncedThreadId(thread.id);
         syncedCount++;
-        console.log(`Synced new thread: ${thread.id}`);
-        await delay(350);
+        log(`Synced new thread: ${thread.id}`);
+        await sleep(350);
       } catch (err) {
         console.error(`Failed to sync thread ${thread.id}:`, err);
       }
     }
 
-    console.log(`Popup sync complete: ${refreshedCount} refreshed, ${syncedCount} synced`);
+    log(`Popup sync complete: ${refreshedCount} refreshed, ${syncedCount} synced`);
 
     return {
       success: true,
@@ -398,8 +419,6 @@ async function popupSync() {
   } catch (error) {
     console.error('Popup sync error:', error);
     return { success: false, error: error.message };
-  } finally {
-    isSyncing = false;
   }
 }
 
@@ -410,8 +429,9 @@ async function popupSync() {
 async function performSync(options = {}) {
   const { limit = 30 } = options;
 
-  if (isSyncing) {
-    return { success: false, message: 'Sync already in progress' };
+  // Promise 기반 락
+  if (syncPromise) {
+    return syncPromise;
   }
 
   const isConfigured = await storage.isConfigured();
@@ -419,7 +439,20 @@ async function performSync(options = {}) {
     return { success: false, message: 'Please configure settings first' };
   }
 
-  isSyncing = true;
+  // 실제 동기화 로직을 Promise로 래핑
+  syncPromise = doPerformSync(limit);
+
+  try {
+    return await syncPromise;
+  } finally {
+    syncPromise = null;
+  }
+}
+
+/**
+ * 동기화 실제 로직
+ */
+async function doPerformSync(limit) {
   let syncedCount = 0;
   let skippedCount = 0;
   let errors = [];
@@ -436,7 +469,7 @@ async function performSync(options = {}) {
     if (!myUsername) {
       throw new Error('Failed to retrieve username from Threads API');
     }
-    console.log(`Verified current user: @${myUsername}`);
+    log(`Verified current user: @${myUsername}`);
 
     // 최근 게시글만 조회 (최신순)
     const response = await threadsApi.getUserThreads(settings.threadsToken, { limit });
@@ -444,7 +477,7 @@ async function performSync(options = {}) {
       .filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE')
       .map(threadsApi.normalizeThread);
 
-    console.log(`Found ${recentThreads.length} recent threads to check`);
+    log(`Found ${recentThreads.length} recent threads to check`);
 
     // 각 게시글을 Notion에 동기화 (ID 기반으로 이미 동기화된 글 스킵)
     for (const thread of recentThreads) {
@@ -459,7 +492,7 @@ async function performSync(options = {}) {
         // 이미 동기화된 게시글인지 확인
         const alreadySynced = await storage.isThreadSynced(thread.id);
         if (alreadySynced) {
-          console.log(`Thread ${thread.id} already synced, skipping`);
+          log(`Thread ${thread.id} already synced, skipping`);
           skippedCount++;
           continue;
         }
@@ -516,8 +549,6 @@ async function performSync(options = {}) {
     console.error('Sync failed:', error);
     showNotification('Sync Failed', error.message, 'error');
     return { success: false, error: error.message };
-  } finally {
-    isSyncing = false;
   }
 }
 
@@ -526,8 +557,9 @@ async function performSync(options = {}) {
  * @param {string|null} fromDate - ISO 날짜 문자열 (null이면 전체 동기화)
  */
 async function syncFromDate(fromDate) {
-  if (isSyncing) {
-    return { success: false, message: 'Sync already in progress' };
+  // Promise 기반 락
+  if (syncPromise) {
+    return syncPromise;
   }
 
   const isConfigured = await storage.isConfigured();
@@ -535,7 +567,20 @@ async function syncFromDate(fromDate) {
     return { success: false, message: 'Please configure settings first' };
   }
 
-  isSyncing = true;
+  // 실제 동기화 로직을 Promise로 래핑
+  syncPromise = doSyncFromDate(fromDate);
+
+  try {
+    return await syncPromise;
+  } finally {
+    syncPromise = null;
+  }
+}
+
+/**
+ * 특정 날짜부터 동기화 실제 로직
+ */
+async function doSyncFromDate(fromDate) {
   let syncedCount = 0;
   let skippedCount = 0;
   let errors = [];
@@ -552,7 +597,7 @@ async function syncFromDate(fromDate) {
     if (!myUsername) {
       throw new Error('Failed to retrieve username from Threads API');
     }
-    console.log(`Verified current user: @${myUsername}`);
+    log(`Verified current user: @${myUsername}`);
 
     // fromDate부터 게시글 조회 (null이면 전체) - 페이지네이션으로 모든 게시글 조회
     const threads = await threadsApi.getAllUserThreads(
@@ -560,7 +605,7 @@ async function syncFromDate(fromDate) {
       { since: fromDate }
     );
 
-    console.log(`Found ${threads.length} threads to sync from ${fromDate || 'the beginning'}`);
+    log(`Found ${threads.length} threads to sync from ${fromDate || 'the beginning'}`);
 
     // 각 게시글을 Notion에 동기화
     for (const thread of threads) {
@@ -575,7 +620,7 @@ async function syncFromDate(fromDate) {
         // 이미 동기화된 게시글인지 확인
         const alreadySynced = await storage.isThreadSynced(thread.id);
         if (alreadySynced) {
-          console.log(`Thread ${thread.id} already synced, skipping`);
+          log(`Thread ${thread.id} already synced, skipping`);
           skippedCount++;
           continue;
         }
@@ -622,8 +667,6 @@ async function syncFromDate(fromDate) {
     console.error('Sync from date failed:', error);
     showNotification('Sync Failed', error.message, 'error');
     return { success: false, error: error.message };
-  } finally {
-    isSyncing = false;
   }
 }
 
@@ -673,7 +716,7 @@ function getDefaultFieldMapping() {
  * Content Script에서 새 글 감지 시 처리
  */
 async function handleNewPostDetected(postData) {
-  console.log('New post detected:', postData);
+  log('New post detected:', postData);
 
   const isConfigured = await storage.isConfigured();
   if (!isConfigured) {
@@ -721,7 +764,7 @@ async function handleNewPostDetected(postData) {
 async function setupLongLivedToken(token, appSecret) {
   try {
     // 1. 먼저 토큰 교환 시도 (단기 토큰인 경우)
-    console.log('Attempting to exchange token for long-lived token...');
+    log('Attempting to exchange token for long-lived token...');
     const result = await threadsApi.exchangeForLongLivedToken(token, appSecret);
 
     // 성공 = 단기 토큰이었음 → 새 장기 토큰 저장
@@ -732,7 +775,7 @@ async function setupLongLivedToken(token, appSecret) {
     await storage.setTokenExpiresAt(expiresAt);
 
     const remainingDays = Math.ceil(result.expires_in / (24 * 60 * 60));
-    console.log(`Short-lived token exchanged to long-lived. Valid for ${remainingDays} days`);
+    log(`Short-lived token exchanged to long-lived. Valid for ${remainingDays} days`);
 
     return {
       success: true,
@@ -742,13 +785,13 @@ async function setupLongLivedToken(token, appSecret) {
     };
   } catch (error) {
     // 2. 실패 = 이미 장기 토큰 → 만료일 60일 설정
-    console.log('Token exchange failed, assuming already long-lived token:', error.message);
+    log('Token exchange failed, assuming already long-lived token:', error.message);
 
     const sixtyDays = 60 * 24 * 60 * 60 * 1000;
     await storage.setTokenExpiresAt(Date.now() + sixtyDays);
     await storage.setThreadsAppSecret(appSecret);
 
-    console.log('Long-lived token detected. Expiration set to 60 days');
+    log('Long-lived token detected. Expiration set to 60 days');
 
     return {
       success: true,
@@ -823,11 +866,11 @@ async function testConnections() {
  * 모든 동기화된 게시물의 통계 새로고침
  */
 async function refreshAllPostsStats() {
-  console.log('Starting daily stats refresh...');
+  log('Starting daily stats refresh...');
 
   const isConfigured = await storage.isConfigured();
   if (!isConfigured) {
-    console.log('Not configured, skipping stats refresh');
+    log('Not configured, skipping stats refresh');
     return;
   }
 
@@ -835,7 +878,7 @@ async function refreshAllPostsStats() {
   const mappings = await storage.getThreadPageMappings();
 
   if (!mappings || mappings.length === 0) {
-    console.log('No thread-page mappings found');
+    log('No thread-page mappings found');
     return;
   }
 
@@ -857,10 +900,10 @@ async function refreshAllPostsStats() {
     [...missingInsights, ...recentMappings].map(m => [m.threadId, m])
   ).values()];
 
-  console.log(`Refresh targets: ${toRefresh.length} (missing: ${missingInsights.length}, recent 7d: ${recentMappings.length})`);
+  log(`Refresh targets: ${toRefresh.length} (missing: ${missingInsights.length}, recent 7d: ${recentMappings.length})`);
 
   if (toRefresh.length === 0) {
-    console.log('No posts to refresh');
+    log('No posts to refresh');
     return;
   }
 
@@ -884,7 +927,7 @@ async function refreshAllPostsStats() {
       await storage.updateThreadInsights(mapping.threadId, insights);
 
       updatedCount++;
-      console.log(`Updated stats for thread ${mapping.threadId}`);
+      log(`Updated stats for thread ${mapping.threadId}`);
 
       // Rate limit 준수 (Notion API: 3 req/sec)
       await new Promise(resolve => setTimeout(resolve, 350));
@@ -894,7 +937,7 @@ async function refreshAllPostsStats() {
     }
   }
 
-  console.log(`Daily stats refresh complete: ${updatedCount} updated, ${errorCount} errors`);
+  log(`Daily stats refresh complete: ${updatedCount} updated, ${errorCount} errors`);
 
   if (updatedCount > 0) {
     showNotification(
@@ -965,7 +1008,7 @@ async function getAggregatedInsights(period) {
     aggregated.followers_count = 0;
   }
 
-  console.log(`Aggregated insights (${period} days): ${aggregated.postCount} posts, ${aggregated.views} views`);
+  log(`Aggregated insights (${period} days): ${aggregated.postCount} posts, ${aggregated.views} views`);
 
   return aggregated;
 }
@@ -986,4 +1029,4 @@ function showNotification(title, message, type = 'info') {
 }
 
 // 서비스 워커 활성화 로그
-console.log('Threads to Notion Sync background service worker started');
+log('Threads to Notion Sync background service worker started');

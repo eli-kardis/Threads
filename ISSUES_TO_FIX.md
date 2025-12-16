@@ -239,3 +239,10 @@ export function normalizeThread(apiThread, insights = null) {
 - [x] OAuth 취소 처리
 - [x] Chart.js 메모리 누수
 - [x] 토큰 갱신 재시도 로직
+- [x] innerHTML XSS 취약점 (2025-12-17)
+- [x] Storage 키 불일치 (2025-12-17)
+- [x] Race Condition (2025-12-17)
+- [x] Notion API 에러 처리 (2025-12-17)
+- [x] Rate Limit 타임아웃 (2025-12-17)
+- [x] 에러 메시지 정리 (2025-12-17)
+- [x] 콘솔 로그 정리 (2025-12-17)

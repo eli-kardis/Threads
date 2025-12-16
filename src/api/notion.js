@@ -10,6 +10,7 @@ const NOTION_VERSION = '2022-06-28';
 
 // Rate Limit: 3 requests per second
 const REQUEST_DELAY = 334; // ~3 req/sec
+const MAX_WAIT_TIME = 5000; // 최대 대기 시간 5초
 let lastRequestTime = 0;
 
 // 페이지네이션 안전장치
@@ -23,9 +24,8 @@ async function waitForRateLimit() {
   const timeSinceLastRequest = now - lastRequestTime;
 
   if (timeSinceLastRequest < REQUEST_DELAY) {
-    await new Promise(resolve =>
-      setTimeout(resolve, REQUEST_DELAY - timeSinceLastRequest)
-    );
+    const waitTime = Math.min(REQUEST_DELAY - timeSinceLastRequest, MAX_WAIT_TIME);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
   }
 
   lastRequestTime = Date.now();
