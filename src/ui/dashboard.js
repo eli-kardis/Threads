@@ -47,7 +47,7 @@ function setupEventListeners() {
 }
 
 /**
- * 통계 새로고침 후 데이터 다시 로드
+ * 통계 새로고침 후 데이터 다시 로드 (팝업과 동일한 로직)
  */
 async function refreshAndReload() {
   console.log('refreshAndReload called');
@@ -56,17 +56,29 @@ async function refreshAndReload() {
   refreshBtn.disabled = true;
 
   try {
-    // 백필 + 통계 새로고침 실행
-    console.log('Sending REFRESH_STATS...');
-    const result = await chrome.runtime.sendMessage({ type: 'REFRESH_STATS' });
-    console.log('REFRESH_STATS result:', result);
+    // 14일 이내 인사이트 새로고침 + 새 글 동기화
+    console.log('Sending SYNC_NOW...');
+    const result = await chrome.runtime.sendMessage({ type: 'SYNC_NOW' });
+    console.log('SYNC_NOW result:', result);
+
+    // 결과 표시
+    if (result.success) {
+      const parts = [];
+      if (result.refreshedCount > 0) parts.push(`${result.refreshedCount}개 새로고침`);
+      if (result.syncedCount > 0) parts.push(`${result.syncedCount}개 동기화`);
+      refreshBtn.textContent = parts.length > 0 ? `✓ ${parts.join(', ')}` : '✓ 최신 상태';
+    }
+
     // 데이터 다시 로드
     await loadDashboardData();
   } catch (error) {
     console.error('Refresh failed:', error);
   } finally {
-    refreshBtn.textContent = '새로고침';
-    refreshBtn.disabled = false;
+    // 2초 후 버튼 텍스트 복원
+    setTimeout(() => {
+      refreshBtn.textContent = '새로고침';
+      refreshBtn.disabled = false;
+    }, 2000);
   }
 }
 

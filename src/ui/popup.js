@@ -198,7 +198,10 @@ async function handleSyncNow() {
     const result = await chrome.runtime.sendMessage({ type: 'SYNC_NOW' });
 
     if (result.success) {
-      syncBtn.innerHTML = `✓ ${result.syncedCount}개 동기화됨`;
+      const parts = [];
+      if (result.refreshedCount > 0) parts.push(`${result.refreshedCount}개 새로고침`);
+      if (result.syncedCount > 0) parts.push(`${result.syncedCount}개 동기화`);
+      syncBtn.innerHTML = parts.length > 0 ? `✓ ${parts.join(', ')}` : '✓ 최신 상태';
     } else {
       syncBtn.innerHTML = '✕ ' + (result.message || result.error);
     }

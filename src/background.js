@@ -200,7 +200,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleMessage(message, sender) {
   switch (message.type) {
     case 'SYNC_NOW':
-      return await performSync({ limit: 30 }); // 팝업 버튼: 30개
+      return await popupSync(); // 팝업 버튼: 14일 인사이트 새로고침 + 새 글 동기화
 
     case 'GET_SYNC_STATUS':
       return await getSyncStatus();
@@ -286,6 +286,121 @@ async function getSyncStatus() {
       total: history.length
     }
   };
+}
+
+/**
+ * 팝업 동기화 (인사이트 새로고침 + 새 글 동기화)
+ * - 14일 이내 게시글 인사이트 새로고침
+ * - 마지막 동기화된 게시글 이후 새 글 동기화
+ */
+async function popupSync() {
+  if (isSyncing) {
+    return { success: false, message: 'Sync already in progress' };
+  }
+
+  const isConfigured = await storage.isConfigured();
+  if (!isConfigured) {
+    return { success: false, message: 'Please configure settings first' };
+  }
+
+  isSyncing = true;
+  let refreshedCount = 0;
+  let syncedCount = 0;
+
+  try {
+    const settings = await storage.getAllSettings();
+    const mappings = await storage.getThreadPageMappings();
+
+    // === STEP 1: 14일 이내 게시글 인사이트 새로고침 ===
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+    const recentMappings = mappings.filter(m => {
+      if (!m.postCreatedAt) return false;
+      return new Date(m.postCreatedAt) >= fourteenDaysAgo;
+    });
+
+    console.log(`Refreshing insights for ${recentMappings.length} posts (last 14 days)`);
+
+    for (const mapping of recentMappings) {
+      try {
+        const insights = await threadsApi.getThreadInsights(settings.threadsToken, mapping.threadId);
+        await notionApi.updatePageStats(settings.notionSecret, mapping.notionPageId, insights, settings.fieldMapping || {});
+        await storage.updateThreadInsights(mapping.threadId, insights);
+        refreshedCount++;
+        await delay(350); // Rate limit
+      } catch (err) {
+        console.error(`Failed to refresh insights for ${mapping.threadId}:`, err);
+      }
+    }
+
+    // === STEP 2: 마지막 게시글 작성시간 이후 새 글 동기화 ===
+    // 가장 최신 게시글의 작성시간 찾기
+    let latestPostTime = null;
+    for (const m of mappings) {
+      if (m.postCreatedAt) {
+        const postTime = new Date(m.postCreatedAt);
+        if (!latestPostTime || postTime > latestPostTime) {
+          latestPostTime = postTime;
+        }
+      }
+    }
+
+    console.log(`Latest synced post time: ${latestPostTime?.toISOString() || 'none'}`);
+
+    // 본인 username 조회
+    const myUserResult = await threadsApi.testConnection(settings.threadsToken);
+    if (!myUserResult.success) {
+      throw new Error('Failed to verify user identity');
+    }
+    const myUsername = myUserResult.user?.username;
+
+    // 최근 게시글 조회 (30개)
+    const response = await threadsApi.getUserThreads(settings.threadsToken, { limit: 30 });
+    const recentThreads = (response.data || [])
+      .filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE')
+      .map(threadsApi.normalizeThread);
+
+    for (const thread of recentThreads) {
+      // 본인 글 체크
+      if (thread.username !== myUsername) continue;
+
+      // 이미 동기화된 글 스킵
+      const alreadySynced = await storage.isThreadSynced(thread.id);
+      if (alreadySynced) continue;
+
+      // 마지막 게시글 이후인지 체크 (latestPostTime이 있으면)
+      if (latestPostTime && thread.createdAt) {
+        const threadTime = new Date(thread.createdAt);
+        if (threadTime <= latestPostTime) continue;
+      }
+
+      // 동기화
+      try {
+        await syncThreadToNotion(thread, settings);
+        await storage.addSyncedThreadId(thread.id);
+        syncedCount++;
+        console.log(`Synced new thread: ${thread.id}`);
+        await delay(350);
+      } catch (err) {
+        console.error(`Failed to sync thread ${thread.id}:`, err);
+      }
+    }
+
+    console.log(`Popup sync complete: ${refreshedCount} refreshed, ${syncedCount} synced`);
+
+    return {
+      success: true,
+      refreshedCount,
+      syncedCount,
+      message: `인사이트 ${refreshedCount}개 새로고침, ${syncedCount}개 동기화`
+    };
+  } catch (error) {
+    console.error('Popup sync error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    isSyncing = false;
+  }
 }
 
 /**
@@ -724,10 +839,25 @@ async function refreshAllPostsStats() {
     return;
   }
 
-  // 모든 게시글 새로고침 (임시)
-  const toRefresh = mappings;
+  // 1. insights 없는 게시글 (백필 대상)
+  const missingInsights = mappings.filter(m => !m.insights);
 
-  console.log(`Refresh targets: ${toRefresh.length} total (all posts)`);
+  // 2. 게시일 기준 7일 이내 게시글 (정기 새로고침)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const recentMappings = mappings.filter(m => {
+    if (!m.postCreatedAt) return false;
+    const postDate = new Date(m.postCreatedAt);
+    return postDate >= sevenDaysAgo;
+  });
+
+  // 합쳐서 중복 제거
+  const toRefresh = [...new Map(
+    [...missingInsights, ...recentMappings].map(m => [m.threadId, m])
+  ).values()];
+
+  console.log(`Refresh targets: ${toRefresh.length} (missing: ${missingInsights.length}, recent 7d: ${recentMappings.length})`);
 
   if (toRefresh.length === 0) {
     console.log('No posts to refresh');
