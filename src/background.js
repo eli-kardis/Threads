@@ -684,7 +684,8 @@ async function syncThreadToNotion(thread, settings) {
     likes: insights.likes,
     replies: insights.replies,
     reposts: insights.reposts,
-    quotes: insights.quotes
+    quotes: insights.quotes,
+    shares: insights.shares
   };
 
   const result = await notionApi.createPage(
