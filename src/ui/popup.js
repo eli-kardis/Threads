@@ -75,12 +75,15 @@ function renderNotConfigured() {
  * 설정 완료 상태 렌더링
  */
 async function renderConfigured() {
-  const [history, weekInsights, monthInsights, totalInsights] = await Promise.all([
+  // 통합 API 사용 - 3회 호출 → 1회로 최적화
+  const [history, allInsights] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 5 }),
-    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 7 }),
-    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 30 }),
-    chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 90 })
+    chrome.runtime.sendMessage({ type: 'GET_ALL_INSIGHTS' })
   ]);
+
+  const weekInsights = allInsights.week;
+  const monthInsights = allInsights.month;
+  const totalInsights = allInsights.total;
 
   const statusClass = currentStatus.isSyncing ? '' : '';
   const totalViews = totalInsights.views || 0;

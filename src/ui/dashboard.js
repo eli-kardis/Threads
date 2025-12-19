@@ -87,14 +87,18 @@ async function refreshAndReload() {
  */
 async function loadDashboardData() {
   try {
-    // 사용자 정보, 인사이트(선택 기간/전체), 동기화 기록, 스레드 매핑(인사이트 포함) 동시 조회
-    const [userInfo, insights, totalInsights, history, mappings] = await Promise.all([
+    // 통합 API 사용 - API 호출 최적화
+    const [userInfo, allInsights, history, mappings] = await Promise.all([
       chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' }),
-      chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: currentPeriod }),
-      chrome.runtime.sendMessage({ type: 'GET_AGGREGATED_INSIGHTS', period: 90 }), // 전체
+      chrome.runtime.sendMessage({ type: 'GET_ALL_INSIGHTS' }),
       chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 100 }),
       chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS' })
     ]);
+
+    // 현재 선택된 기간에 따라 인사이트 선택
+    const periodMap = { 7: 'week', 30: 'month', 90: 'total' };
+    const insights = allInsights[periodMap[currentPeriod]] || allInsights.week;
+    const totalInsights = allInsights.total;
 
     // 사용자 이름 및 게시글 수 표시
     if (userInfo?.threads?.user?.username) {

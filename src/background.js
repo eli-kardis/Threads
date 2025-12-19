@@ -15,6 +15,13 @@ const log = DEBUG ? console.log.bind(console) : () => {};
 // 동기화 상태 (Promise 기반 락)
 let syncPromise = null;
 
+// 팔로워 수 캐시 (1분 유효 - 데이터 신선도 유지)
+const FOLLOWERS_CACHE_TTL = 60 * 1000;
+let followersCache = { count: 0, fetchedAt: 0 };
+
+// 요청 결합 (Request Coalescing) - 동일 요청 중복 방지
+const pendingInsightsRequests = new Map();
+
 // isSyncing getter (하위 호환성 유지)
 const isSyncing = () => syncPromise !== null;
 
@@ -257,7 +264,10 @@ async function handleMessage(message, sender) {
       return await threadsApi.getAccountInsights(settingsForInsights.threadsToken, { period: message.period || 7 });
 
     case 'GET_AGGREGATED_INSIGHTS':
-      return await getAggregatedInsights(message.period || 7);
+      return await getAggregatedInsightsWithCoalescing(message.period || 7);
+
+    case 'GET_ALL_INSIGHTS':
+      return await getAllInsights();
 
     case 'GET_THREAD_MAPPINGS':
       return await storage.getThreadPageMappings();
@@ -950,26 +960,105 @@ async function refreshAllPostsStats() {
 }
 
 /**
- * Storage 기반 인사이트 집계 (대시보드용)
- * @param {number} period - 기간 (7, 30, 90=전체)
- * @returns {Promise<Object>} - 집계된 인사이트 데이터
+ * 캐시된 팔로워 수 조회 (1분 TTL)
+ * @param {string} token - Threads 액세스 토큰
+ * @returns {Promise<number>}
  */
-async function getAggregatedInsights(period) {
-  const mappings = await storage.getThreadPageMappings();
+async function getCachedFollowersCount(token) {
+  const now = Date.now();
 
-  // 기간별 필터링
+  // 캐시가 유효하면 캐시된 값 반환
+  if (now - followersCache.fetchedAt < FOLLOWERS_CACHE_TTL && followersCache.count > 0) {
+    log('Using cached followers count:', followersCache.count);
+    return followersCache.count;
+  }
+
+  // 캐시 만료 - API 호출
+  try {
+    const accountInsights = await threadsApi.getAccountInsights(token, { period: 7 });
+    followersCache = {
+      count: accountInsights.followers_count || 0,
+      fetchedAt: now
+    };
+    log('Fetched fresh followers count:', followersCache.count);
+    return followersCache.count;
+  } catch (error) {
+    console.warn('Failed to get followers count:', error);
+    return followersCache.count || 0; // 실패 시 기존 캐시 반환
+  }
+}
+
+/**
+ * 요청 결합 래퍼 - 동일 period 요청 중복 방지
+ * @param {number} period
+ * @returns {Promise<Object>}
+ */
+async function getAggregatedInsightsWithCoalescing(period) {
+  const cacheKey = `insights_${period}`;
+
+  // 이미 진행 중인 요청이 있으면 재사용
+  if (pendingInsightsRequests.has(cacheKey)) {
+    log(`Reusing pending request for period ${period}`);
+    return pendingInsightsRequests.get(cacheKey);
+  }
+
+  // 새 요청 생성 및 등록
+  const promise = getAggregatedInsights(period);
+  pendingInsightsRequests.set(cacheKey, promise);
+
+  try {
+    return await promise;
+  } finally {
+    pendingInsightsRequests.delete(cacheKey);
+  }
+}
+
+/**
+ * 통합 인사이트 API - 모든 기간 한 번에 조회
+ * @returns {Promise<Object>} - { week, month, total, followers_count }
+ */
+async function getAllInsights() {
+  const mappings = await storage.getThreadPageMappings();
+  const settings = await storage.getAllSettings();
+
+  // 기간별 집계를 한 번의 mappings 순회로 처리
+  const week = aggregateByPeriod(mappings, 7);
+  const month = aggregateByPeriod(mappings, 30);
+  const total = aggregateByPeriod(mappings, 90);
+
+  // 팔로워 수는 캐시된 값 사용
+  let followers_count = 0;
+  if (settings.threadsToken) {
+    followers_count = await getCachedFollowersCount(settings.threadsToken);
+  }
+
+  return {
+    week: { ...week, followers_count },
+    month: { ...month, followers_count },
+    total: { ...total, followers_count },
+    followers_count
+  };
+}
+
+/**
+ * 기간별 인사이트 집계 (내부 헬퍼)
+ * @param {Array} mappings
+ * @param {number} period
+ * @returns {Object}
+ */
+function aggregateByPeriod(mappings, period) {
   let filteredMappings = mappings;
-  if (period !== 90) { // 90은 "전체"를 의미
+
+  if (period !== 90) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - period);
 
     filteredMappings = mappings.filter(m => {
-      if (!m.postCreatedAt) return true; // 기존 데이터는 포함
+      if (!m.postCreatedAt) return true;
       return new Date(m.postCreatedAt) >= cutoffDate;
     });
   }
 
-  // 인사이트 합산
   const aggregated = {
     views: 0,
     likes: 0,
@@ -978,8 +1067,7 @@ async function getAggregatedInsights(period) {
     quotes: 0,
     shares: 0,
     postCount: filteredMappings.length,
-    period,
-    fetchedAt: new Date().toISOString()
+    period
   };
 
   for (const mapping of filteredMappings) {
@@ -993,16 +1081,24 @@ async function getAggregatedInsights(period) {
     }
   }
 
-  // 팔로워 수는 Threads API에서 현재 값 조회
+  return aggregated;
+}
+
+/**
+ * Storage 기반 인사이트 집계 (대시보드용)
+ * @param {number} period - 기간 (7, 30, 90=전체)
+ * @returns {Promise<Object>} - 집계된 인사이트 데이터
+ */
+async function getAggregatedInsights(period) {
+  const mappings = await storage.getThreadPageMappings();
+  const aggregated = aggregateByPeriod(mappings, period);
+  aggregated.fetchedAt = new Date().toISOString();
+
+  // 팔로워 수는 캐시된 값 사용
   try {
     const settings = await storage.getAllSettings();
     if (settings.threadsToken) {
-      const connectionResult = await threadsApi.testConnection(settings.threadsToken);
-      if (connectionResult.success && connectionResult.user) {
-        // 팔로워 수를 가져오기 위해 account insights API 호출
-        const accountInsights = await threadsApi.getAccountInsights(settings.threadsToken, { period: 7 });
-        aggregated.followers_count = accountInsights.followers_count || 0;
-      }
+      aggregated.followers_count = await getCachedFollowersCount(settings.threadsToken);
     }
   } catch (error) {
     console.warn('Failed to get followers count:', error);
