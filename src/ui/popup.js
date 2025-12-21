@@ -198,7 +198,17 @@ async function handleSyncNow() {
   syncBtn.innerHTML = '⏳ 동기화 중...';
 
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'SYNC_NOW' });
+    console.log('[Popup] Sending SYNC_NOW message...');
+
+    // 타임아웃 래퍼 추가 (60초) - Service Worker 응답 대기
+    const result = await Promise.race([
+      chrome.runtime.sendMessage({ type: 'SYNC_NOW' }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('동기화 시간 초과 (60초)')), 60000)
+      )
+    ]);
+
+    console.log('[Popup] SYNC_NOW result:', result);
 
     if (result.success) {
       const parts = [];
@@ -208,15 +218,15 @@ async function handleSyncNow() {
     } else {
       syncBtn.innerHTML = '✕ ' + (result.message || result.error);
     }
-
-    // 상태 새로고침
+  } catch (error) {
+    console.error('[Popup] Sync failed:', error);
+    syncBtn.innerHTML = '✕ ' + (error.message || '동기화 실패');
+  } finally {
+    // 항상 2초 후 상태 새로고침 및 버튼 복원
     setTimeout(async () => {
+      syncBtn.disabled = false;
       await loadStatus();
     }, 2000);
-  } catch (error) {
-    console.error('Sync failed:', error);
-    syncBtn.innerHTML = '✕ 동기화 실패';
-    syncBtn.disabled = false;
   }
 }
 

@@ -311,21 +311,29 @@ async function getSyncStatus() {
  * - 마지막 동기화된 게시글 이후 새 글 동기화
  */
 async function popupSync() {
+  console.log('[Background] popupSync called');
+
   // Promise 기반 락: 이미 동기화 중이면 기존 작업 결과 반환
   if (syncPromise) {
+    console.log('[Background] Sync already in progress, returning existing promise');
     return syncPromise;
   }
 
   const isConfigured = await storage.isConfigured();
   if (!isConfigured) {
-    return { success: false, message: 'Please configure settings first' };
+    console.log('[Background] Not configured');
+    return { success: false, message: '설정이 필요합니다' };
   }
+
+  console.log('[Background] Starting doPopupSync...');
 
   // 실제 동기화 로직을 Promise로 래핑
   syncPromise = doPopupSync();
 
   try {
-    return await syncPromise;
+    const result = await syncPromise;
+    console.log('[Background] doPopupSync completed:', result);
+    return result;
   } finally {
     syncPromise = null;
   }
@@ -338,9 +346,16 @@ async function doPopupSync() {
   let refreshedCount = 0;
   let syncedCount = 0;
 
+  // Service Worker keep-alive: 긴 작업 중 종료 방지
+  const keepAliveInterval = setInterval(() => {
+    console.log('[Background] Keep-alive ping');
+  }, 20000);
+
   try {
+    console.log('[Background] doPopupSync started');
     const settings = await storage.getAllSettings();
     const mappings = await storage.getThreadPageMappings();
+    console.log('[Background] Got settings and mappings:', mappings.length, 'posts');
 
     // === STEP 1: 14일 이내 게시글 인사이트 새로고침 ===
     const fourteenDaysAgo = new Date();
@@ -351,6 +366,7 @@ async function doPopupSync() {
       return new Date(m.postCreatedAt) >= fourteenDaysAgo;
     });
 
+    console.log(`[Background] STEP 1: Refreshing insights for ${recentMappings.length} posts (last 14 days)`);
     log(`Refreshing insights for ${recentMappings.length} posts (last 14 days)`);
 
     for (const mapping of recentMappings) {
@@ -365,7 +381,10 @@ async function doPopupSync() {
       }
     }
 
+    console.log(`[Background] STEP 1 completed: ${refreshedCount} posts refreshed`);
+
     // === STEP 2: 마지막 게시글 작성시간 이후 새 글 동기화 ===
+    console.log('[Background] STEP 2: Checking for new posts to sync...');
     // 가장 최신 게시글의 작성시간 찾기
     let latestPostTime = null;
     for (const m of mappings) {
@@ -380,17 +399,21 @@ async function doPopupSync() {
     log(`Latest synced post time: ${latestPostTime?.toISOString() || 'none'}`);
 
     // 본인 username 조회
+    console.log('[Background] Verifying user identity...');
     const myUserResult = await threadsApi.testConnection(settings.threadsToken);
     if (!myUserResult.success) {
       throw new Error('Failed to verify user identity');
     }
     const myUsername = myUserResult.user?.username;
+    console.log(`[Background] User verified: @${myUsername}`);
 
     // 최근 게시글 조회 (30개)
+    console.log('[Background] Fetching recent threads...');
     const response = await threadsApi.getUserThreads(settings.threadsToken, { limit: 30 });
     const recentThreads = (response.data || [])
       .filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE')
       .map(threadsApi.normalizeThread);
+    console.log(`[Background] Found ${recentThreads.length} recent threads`);
 
     for (const thread of recentThreads) {
       // 본인 글 체크
@@ -408,6 +431,7 @@ async function doPopupSync() {
 
       // 동기화
       try {
+        console.log(`[Background] Syncing new thread: ${thread.id}`);
         await syncThreadToNotion(thread, settings);
         await storage.addSyncedThreadId(thread.id);
         syncedCount++;
@@ -418,6 +442,7 @@ async function doPopupSync() {
       }
     }
 
+    console.log(`[Background] Popup sync complete: ${refreshedCount} refreshed, ${syncedCount} synced`);
     log(`Popup sync complete: ${refreshedCount} refreshed, ${syncedCount} synced`);
 
     return {
@@ -427,8 +452,12 @@ async function doPopupSync() {
       message: `인사이트 ${refreshedCount}개 새로고침, ${syncedCount}개 동기화`
     };
   } catch (error) {
-    console.error('Popup sync error:', error);
+    console.error('[Background] Popup sync error:', error);
     return { success: false, error: error.message };
+  } finally {
+    // keep-alive 정리
+    clearInterval(keepAliveInterval);
+    console.log('[Background] Keep-alive stopped');
   }
 }
 
