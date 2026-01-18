@@ -315,6 +315,79 @@
       border-radius: 3px;
     }
 
+    /* Followers History */
+    .followers-history {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .followers-summary {
+      display: flex;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .followers-current-box {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .followers-count {
+      font-size: 48px;
+      font-weight: 700;
+      color: #1F3A5F;
+      line-height: 1;
+    }
+
+    .followers-label {
+      font-size: 14px;
+      color: #6B7280;
+    }
+
+    .followers-changes {
+      display: flex;
+      gap: 24px;
+    }
+
+    .change-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 16px;
+      background: #F9FAFB;
+      border-radius: 8px;
+      min-width: 80px;
+    }
+
+    .change-label {
+      font-size: 12px;
+      color: #6B7280;
+    }
+
+    .change-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1F3A5F;
+    }
+
+    .change-value.positive {
+      color: #10B981;
+    }
+
+    .change-value.positive::before {
+      content: '+';
+    }
+
+    .change-value.negative {
+      color: #EF4444;
+    }
+
+    .change-value.zero {
+      color: #9CA3AF;
+    }
+
     /* History Table */
     .history-card {
       background: white;
@@ -510,6 +583,38 @@
           <div class="ratio-item highlight">
             <span class="ratio-label">팔로워 전환율</span>
             <span class="ratio-value" id="conversionRate">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Followers History Chart -->
+    <div class="charts-row">
+      <div class="chart-card" style="grid-column: span 2;">
+        <h3 class="chart-title">팔로워 변화 추이</h3>
+        <div class="followers-history">
+          <div class="followers-summary">
+            <div class="followers-current-box">
+              <span class="followers-count" id="currentFollowers">-</span>
+              <span class="followers-label">현재 팔로워</span>
+            </div>
+            <div class="followers-changes">
+              <div class="change-item">
+                <span class="change-label">오늘</span>
+                <span class="change-value" id="todayChange">-</span>
+              </div>
+              <div class="change-item">
+                <span class="change-label">7일</span>
+                <span class="change-value" id="weekChange">-</span>
+              </div>
+              <div class="change-item">
+                <span class="change-label">30일</span>
+                <span class="change-value" id="monthChange">-</span>
+              </div>
+            </div>
+          </div>
+          <div class="chart-container" style="height: 180px;">
+            <canvas id="followersChart"></canvas>
           </div>
         </div>
       </div>

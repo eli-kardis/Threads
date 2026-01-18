@@ -272,6 +272,12 @@ async function handleMessage(message, sender) {
     case 'GET_THREAD_MAPPINGS':
       return await storage.getThreadPageMappings();
 
+    case 'GET_FOLLOWERS_HISTORY':
+      return await storage.getFollowersHistory(message.limit || 90);
+
+    case 'GET_FOLLOWERS_CHANGE_STATS':
+      return await storage.getFollowersChangeStats();
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -903,10 +909,36 @@ async function testConnections() {
 }
 
 /**
+ * 일일 팔로워 수 기록
+ */
+async function recordDailyFollowers() {
+  log('Recording daily followers count...');
+
+  try {
+    const settings = await storage.getAllSettings();
+    if (!settings.threadsToken) {
+      log('No token, skipping followers recording');
+      return;
+    }
+
+    const followersCount = await getCachedFollowersCount(settings.threadsToken);
+    if (followersCount > 0) {
+      await storage.addFollowersHistoryEntry(followersCount);
+      log(`Recorded daily followers: ${followersCount}`);
+    }
+  } catch (error) {
+    console.error('Failed to record daily followers:', error);
+  }
+}
+
+/**
  * 모든 동기화된 게시물의 통계 새로고침
  */
 async function refreshAllPostsStats() {
   log('Starting daily stats refresh...');
+
+  // 먼저 팔로워 수 기록
+  await recordDailyFollowers();
 
   const isConfigured = await storage.isConfigured();
   if (!isConfigured) {

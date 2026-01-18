@@ -3,6 +3,7 @@
  */
 
 let dailyChart = null;
+let followersChart = null;
 let currentPeriod = 7;
 
 /**
@@ -12,6 +13,10 @@ function cleanupChart() {
   if (dailyChart) {
     dailyChart.destroy();
     dailyChart = null;
+  }
+  if (followersChart) {
+    followersChart.destroy();
+    followersChart = null;
   }
 }
 
@@ -88,11 +93,13 @@ async function refreshAndReload() {
 async function loadDashboardData() {
   try {
     // 통합 API 사용 - API 호출 최적화
-    const [userInfo, allInsights, history, mappings] = await Promise.all([
+    const [userInfo, allInsights, history, mappings, followersHistory, followersStats] = await Promise.all([
       chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' }),
       chrome.runtime.sendMessage({ type: 'GET_ALL_INSIGHTS' }),
       chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 100 }),
-      chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS' })
+      chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS' }),
+      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_HISTORY', limit: 30 }),
+      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_CHANGE_STATS' })
     ]);
 
     // 현재 선택된 기간에 따라 인사이트 선택
@@ -110,6 +117,7 @@ async function loadDashboardData() {
     updateStatsCards(insights);
     updateCharts(mappings);
     updateRatioStats(totalInsights);
+    updateFollowersHistory(followersHistory, followersStats, allInsights.followers_count);
     updateBestTimeAnalysis(mappings);
     updateHistoryTable(history, mappings);
   } catch (error) {
@@ -204,6 +212,123 @@ function updateRatioStats(totalInsights) {
   document.getElementById('totalViewsCount').textContent = formatNumber(views);
   document.getElementById('totalFollowersCount').textContent = formatNumber(followers);
   document.getElementById('conversionRate').textContent = `${conversionRate}%`;
+}
+
+/**
+ * 팔로워 히스토리 및 변화 통계 업데이트
+ */
+function updateFollowersHistory(history, stats, currentFollowers) {
+  // 현재 팔로워 수 표시 (stats에 없으면 currentFollowers 사용)
+  const current = stats?.current || currentFollowers || 0;
+  document.getElementById('currentFollowers').textContent = formatNumber(current);
+
+  // 변화 통계 표시
+  updateChangeValue('todayChange', stats?.today?.change || 0);
+  updateChangeValue('weekChange', stats?.week?.change || 0);
+  updateChangeValue('monthChange', stats?.month?.change || 0);
+
+  // 차트 업데이트
+  updateFollowersChart(history);
+}
+
+/**
+ * 변화값 요소 업데이트 (색상 클래스 적용)
+ */
+function updateChangeValue(elementId, change) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  element.textContent = change === 0 ? '0' : (change > 0 ? change : change);
+  element.className = 'change-value';
+
+  if (change > 0) {
+    element.classList.add('positive');
+  } else if (change < 0) {
+    element.classList.add('negative');
+  } else {
+    element.classList.add('zero');
+  }
+}
+
+/**
+ * 팔로워 변화 추이 차트 업데이트
+ */
+function updateFollowersChart(history) {
+  const ctx = document.getElementById('followersChart');
+  if (!ctx) return;
+
+  // 히스토리가 없거나 부족하면 안내 메시지 표시
+  if (!history || history.length < 2) {
+    if (followersChart) {
+      followersChart.destroy();
+      followersChart = null;
+    }
+    // Create placeholder message using safe DOM methods
+    const placeholder = document.createElement('div');
+    placeholder.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 180px; color: #9CA3AF; font-size: 14px;';
+    placeholder.textContent = '데이터가 쌓이면 팔로워 변화 추이가 표시됩니다';
+    ctx.parentElement.replaceChildren(placeholder);
+    return;
+  }
+
+  // 날짜순 정렬 (오래된 것부터)
+  const sortedHistory = [...history].reverse();
+
+  const labels = sortedHistory.map(h => {
+    const date = new Date(h.date);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  });
+
+  const data = sortedHistory.map(h => h.count);
+
+  if (followersChart) {
+    followersChart.destroy();
+  }
+
+  followersChart = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '팔로워',
+        data,
+        borderColor: '#1F3A5F',
+        backgroundColor: 'rgba(31, 58, 95, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#1F3A5F'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => `팔로워: ${formatNumber(context.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: {
+            display: false
+          }
+        },
+        y: {
+          beginAtZero: false,
+          ticks: {
+            callback: (value) => formatNumber(value)
+          }
+        }
+      }
+    }
+  });
 }
 
 /**

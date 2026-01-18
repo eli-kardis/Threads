@@ -15,14 +15,16 @@ const STORAGE_KEYS = {
   SYNC_HISTORY: 'syncHistory',
   LAST_SYNC_TIME: 'lastSyncTime',
   SYNCED_THREAD_IDS: 'syncedThreadIds',
-  THREAD_PAGE_MAPPINGS: 'threadPageMappings'
+  THREAD_PAGE_MAPPINGS: 'threadPageMappings',
+  FOLLOWERS_HISTORY: 'followersHistory'
 };
 
 // 스토리지 제한 상수
 const STORAGE_LIMITS = {
   MAX_HISTORY_ENTRIES: 500,
   MAX_SYNCED_IDS: 500,
-  MAX_PAGE_MAPPINGS: 500
+  MAX_PAGE_MAPPINGS: 500,
+  MAX_FOLLOWERS_HISTORY: 90
 };
 
 /**
@@ -509,6 +511,113 @@ export async function getNotionPageIdByThreadId(threadId) {
   const mappings = await getThreadPageMappings();
   const mapping = mappings.find(m => m.threadId === threadId);
   return mapping?.notionPageId || null;
+}
+
+// === 팔로워 히스토리 관리 ===
+
+/**
+ * 팔로워 히스토리에 일별 기록 추가
+ * @param {number} count - 현재 팔로워 수
+ * @returns {Promise<void>}
+ */
+export async function addFollowersHistoryEntry(count) {
+  const history = await get(STORAGE_KEYS.FOLLOWERS_HISTORY) || [];
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // 오늘 날짜 기록이 있는지 확인
+  const todayIndex = history.findIndex(h => h.date === today);
+
+  // 이전 기록에서 변화량 계산
+  const previousCount = history.length > 0 ? history[0].count : count;
+  const change = todayIndex >= 0 ? history[todayIndex].change : count - previousCount;
+
+  const entry = {
+    date: today,
+    count,
+    change: todayIndex >= 0 ? count - (history[1]?.count || count) : change,
+    recordedAt: new Date().toISOString()
+  };
+
+  if (todayIndex >= 0) {
+    // 오늘 기록이 있으면 업데이트
+    history[todayIndex] = entry;
+  } else {
+    // 오늘 기록이 없으면 맨 앞에 추가
+    history.unshift(entry);
+  }
+
+  // 90일 제한
+  if (history.length > STORAGE_LIMITS.MAX_FOLLOWERS_HISTORY) {
+    history.length = STORAGE_LIMITS.MAX_FOLLOWERS_HISTORY;
+  }
+
+  await set(STORAGE_KEYS.FOLLOWERS_HISTORY, history);
+}
+
+/**
+ * 팔로워 히스토리 조회
+ * @param {number} limit - 조회할 개수 (기본: 90)
+ * @returns {Promise<Array>}
+ */
+export async function getFollowersHistory(limit = 90) {
+  const history = await get(STORAGE_KEYS.FOLLOWERS_HISTORY) || [];
+  return history.slice(0, limit);
+}
+
+/**
+ * 팔로워 변화 통계 계산 (오늘/7일/30일)
+ * @returns {Promise<Object>} - { current, today, week, month }
+ */
+export async function getFollowersChangeStats() {
+  const history = await get(STORAGE_KEYS.FOLLOWERS_HISTORY) || [];
+
+  if (history.length === 0) {
+    return {
+      current: 0,
+      today: { change: 0, percent: 0 },
+      week: { change: 0, percent: 0 },
+      month: { change: 0, percent: 0 }
+    };
+  }
+
+  const current = history[0]?.count || 0;
+  const today = new Date().toISOString().split('T')[0];
+
+  // 오늘 변화량
+  const todayEntry = history.find(h => h.date === today);
+  const todayChange = todayEntry?.change || 0;
+
+  // 7일 전 팔로워 수
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const weekAgoDate = sevenDaysAgo.toISOString().split('T')[0];
+  const weekAgoEntry = history.find(h => h.date <= weekAgoDate);
+  const weekAgoCount = weekAgoEntry?.count || current;
+  const weekChange = current - weekAgoCount;
+
+  // 30일 전 팔로워 수
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const monthAgoDate = thirtyDaysAgo.toISOString().split('T')[0];
+  const monthAgoEntry = history.find(h => h.date <= monthAgoDate);
+  const monthAgoCount = monthAgoEntry?.count || current;
+  const monthChange = current - monthAgoCount;
+
+  return {
+    current,
+    today: {
+      change: todayChange,
+      percent: weekAgoCount > 0 ? ((todayChange / weekAgoCount) * 100).toFixed(2) : 0
+    },
+    week: {
+      change: weekChange,
+      percent: weekAgoCount > 0 ? ((weekChange / weekAgoCount) * 100).toFixed(2) : 0
+    },
+    month: {
+      change: monthChange,
+      percent: monthAgoCount > 0 ? ((monthChange / monthAgoCount) * 100).toFixed(2) : 0
+    }
+  };
 }
 
 export { STORAGE_KEYS, clear as clearAll };
