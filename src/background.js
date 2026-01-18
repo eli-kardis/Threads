@@ -278,6 +278,10 @@ async function handleMessage(message, sender) {
     case 'GET_FOLLOWERS_CHANGE_STATS':
       return await storage.getFollowersChangeStats();
 
+    case 'RECORD_FOLLOWERS_NOW':
+      await recordDailyFollowers();
+      return { success: true };
+
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }

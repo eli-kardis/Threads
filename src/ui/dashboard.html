@@ -388,6 +388,138 @@
       color: #9CA3AF;
     }
 
+    /* Followers Calendar */
+    .followers-calendar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .calendar-header {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      text-align: center;
+    }
+
+    .calendar-header span {
+      font-size: 11px;
+      font-weight: 600;
+      color: #9CA3AF;
+      padding: 4px 0;
+    }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+
+    .calendar-cell {
+      aspect-ratio: 1;
+      min-height: 60px;
+      background: #F9FAFB;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      padding: 4px;
+      transition: all 0.2s;
+    }
+
+    .calendar-cell:hover {
+      background: #E5E7EB;
+    }
+
+    .calendar-cell.today {
+      background: linear-gradient(135deg, #E0E7FF 0%, #C7D2FE 100%);
+      border: 2px solid #1F3A5F;
+    }
+
+    .calendar-cell.empty {
+      background: transparent;
+    }
+
+    .calendar-cell.no-data {
+      background: #F3F4F6;
+    }
+
+    .calendar-date {
+      font-size: 11px;
+      font-weight: 500;
+      color: #6B7280;
+    }
+
+    .calendar-cell.today .calendar-date {
+      color: #1F3A5F;
+      font-weight: 700;
+    }
+
+    .calendar-followers {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1F3A5F;
+    }
+
+    .calendar-cell.no-data .calendar-followers {
+      font-size: 11px;
+      color: #9CA3AF;
+      font-weight: 400;
+    }
+
+    .calendar-change {
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .calendar-change.positive {
+      color: #10B981;
+    }
+
+    .calendar-change.negative {
+      color: #EF4444;
+    }
+
+    .calendar-change.zero {
+      color: #9CA3AF;
+    }
+
+    .calendar-month-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .calendar-month-label {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1F3A5F;
+    }
+
+    .calendar-nav-btn {
+      background: #F3F4F6;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #374151;
+      transition: background 0.2s;
+    }
+
+    .calendar-nav-btn:hover {
+      background: #E5E7EB;
+    }
+
+    .calendar-nav-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* History Table */
     .history-card {
       background: white;
@@ -588,7 +720,7 @@
       </div>
     </div>
 
-    <!-- Followers History Chart -->
+    <!-- Followers History Calendar -->
     <div class="charts-row">
       <div class="chart-card" style="grid-column: span 2;">
         <h3 class="chart-title">팔로워 변화 추이</h3>
@@ -613,8 +745,24 @@
               </div>
             </div>
           </div>
-          <div class="chart-container" style="height: 180px;">
-            <canvas id="followersChart"></canvas>
+          <div class="followers-calendar" id="followersCalendar">
+            <div class="calendar-month-nav">
+              <button class="calendar-nav-btn" id="prevMonthBtn">&larr; 이전</button>
+              <span class="calendar-month-label" id="calendarMonthLabel">2025년 1월</span>
+              <button class="calendar-nav-btn" id="nextMonthBtn">다음 &rarr;</button>
+            </div>
+            <div class="calendar-header">
+              <span>일</span>
+              <span>월</span>
+              <span>화</span>
+              <span>수</span>
+              <span>목</span>
+              <span>금</span>
+              <span>토</span>
+            </div>
+            <div class="calendar-grid" id="calendarGrid">
+              <!-- Calendar cells will be rendered by JS -->
+            </div>
           </div>
         </div>
       </div>

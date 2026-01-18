@@ -3,8 +3,9 @@
  */
 
 let dailyChart = null;
-let followersChart = null;
 let currentPeriod = 7;
+let calendarMonth = new Date(); // 현재 표시 중인 달력 월
+let followersHistoryData = []; // 팔로워 히스토리 데이터 캐시
 
 /**
  * Chart.js 인스턴스 정리 (메모리 누수 방지)
@@ -13,10 +14,6 @@ function cleanupChart() {
   if (dailyChart) {
     dailyChart.destroy();
     dailyChart = null;
-  }
-  if (followersChart) {
-    followersChart.destroy();
-    followersChart = null;
   }
 }
 
@@ -48,6 +45,17 @@ function setupEventListeners() {
       currentPeriod = parseInt(e.target.dataset.period);
       loadDashboardData();
     });
+  });
+
+  // 달력 네비게이션
+  document.getElementById('prevMonthBtn').addEventListener('click', () => {
+    calendarMonth.setMonth(calendarMonth.getMonth() - 1);
+    renderFollowersCalendar(followersHistoryData);
+  });
+
+  document.getElementById('nextMonthBtn').addEventListener('click', () => {
+    calendarMonth.setMonth(calendarMonth.getMonth() + 1);
+    renderFollowersCalendar(followersHistoryData);
   });
 }
 
@@ -92,13 +100,16 @@ async function refreshAndReload() {
  */
 async function loadDashboardData() {
   try {
+    // 먼저 오늘 팔로워 기록 (아직 없으면 기록됨)
+    await chrome.runtime.sendMessage({ type: 'RECORD_FOLLOWERS_NOW' });
+
     // 통합 API 사용 - API 호출 최적화
     const [userInfo, allInsights, history, mappings, followersHistory, followersStats] = await Promise.all([
       chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' }),
       chrome.runtime.sendMessage({ type: 'GET_ALL_INSIGHTS' }),
       chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 100 }),
       chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS' }),
-      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_HISTORY', limit: 30 }),
+      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_HISTORY', limit: 90 }),
       chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_CHANGE_STATS' })
     ]);
 
@@ -227,8 +238,10 @@ function updateFollowersHistory(history, stats, currentFollowers) {
   updateChangeValue('weekChange', stats?.week?.change || 0);
   updateChangeValue('monthChange', stats?.month?.change || 0);
 
-  // 차트 업데이트
-  updateFollowersChart(history);
+  // 히스토리 데이터 캐시 및 달력 렌더링
+  followersHistoryData = history || [];
+  calendarMonth = new Date(); // 현재 월로 초기화
+  renderFollowersCalendar(followersHistoryData);
 }
 
 /**
@@ -251,84 +264,103 @@ function updateChangeValue(elementId, change) {
 }
 
 /**
- * 팔로워 변화 추이 차트 업데이트
+ * 팔로워 달력 렌더링 (안전한 DOM 메서드 사용)
  */
-function updateFollowersChart(history) {
-  const ctx = document.getElementById('followersChart');
-  if (!ctx) return;
+function renderFollowersCalendar(history) {
+  const grid = document.getElementById('calendarGrid');
+  const monthLabel = document.getElementById('calendarMonthLabel');
+  const prevBtn = document.getElementById('prevMonthBtn');
+  const nextBtn = document.getElementById('nextMonthBtn');
 
-  // 히스토리가 없거나 부족하면 안내 메시지 표시
-  if (!history || history.length < 2) {
-    if (followersChart) {
-      followersChart.destroy();
-      followersChart = null;
-    }
-    // Create placeholder message using safe DOM methods
-    const placeholder = document.createElement('div');
-    placeholder.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 180px; color: #9CA3AF; font-size: 14px;';
-    placeholder.textContent = '데이터가 쌓이면 팔로워 변화 추이가 표시됩니다';
-    ctx.parentElement.replaceChildren(placeholder);
-    return;
-  }
+  if (!grid) return;
 
-  // 날짜순 정렬 (오래된 것부터)
-  const sortedHistory = [...history].reverse();
+  // 월 라벨 업데이트
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  monthLabel.textContent = `${year}년 ${month + 1}월`;
 
-  const labels = sortedHistory.map(h => {
-    const date = new Date(h.date);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+  // 다음 달 버튼 비활성화 (미래 월은 볼 수 없음)
+  const today = new Date();
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  const isFutureMonth = year > today.getFullYear() || (year === today.getFullYear() && month > today.getMonth());
+  nextBtn.disabled = isCurrentMonth || isFutureMonth;
+
+  // 이전 달 버튼 비활성화 (90일 이전은 볼 수 없음)
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const minYear = ninetyDaysAgo.getFullYear();
+  const minMonth = ninetyDaysAgo.getMonth();
+  prevBtn.disabled = year < minYear || (year === minYear && month <= minMonth);
+
+  // 히스토리를 날짜별 맵으로 변환
+  const historyMap = new Map();
+  (history || []).forEach(h => {
+    historyMap.set(h.date, h);
   });
 
-  const data = sortedHistory.map(h => h.count);
+  // 해당 월의 첫째 날과 마지막 날
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startDayOfWeek = firstDay.getDay(); // 0=일, 1=월, ...
 
-  if (followersChart) {
-    followersChart.destroy();
+  // 기존 셀 제거
+  grid.replaceChildren();
+
+  // 첫째 주 빈 칸
+  for (let i = 0; i < startDayOfWeek; i++) {
+    const emptyCell = document.createElement('div');
+    emptyCell.className = 'calendar-cell empty';
+    grid.appendChild(emptyCell);
   }
 
-  followersChart = new Chart(ctx.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: '팔로워',
-        data,
-        borderColor: '#1F3A5F',
-        backgroundColor: 'rgba(31, 58, 95, 0.1)',
-        borderWidth: 2,
-        fill: true,
-        tension: 0.3,
-        pointRadius: 3,
-        pointBackgroundColor: '#1F3A5F'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: false
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => `팔로워: ${formatNumber(context.raw)}`
-          }
+  // 날짜 셀
+  const todayStr = today.toISOString().split('T')[0];
+
+  for (let day = 1; day <= lastDay.getDate(); day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const data = historyMap.get(dateStr);
+    const isToday = dateStr === todayStr;
+    const isFuture = new Date(dateStr) > today;
+
+    const cell = document.createElement('div');
+    cell.className = 'calendar-cell';
+    if (isToday) cell.classList.add('today');
+    if (!data && !isFuture) cell.classList.add('no-data');
+    if (isFuture) cell.classList.add('empty');
+
+    if (!isFuture) {
+      // 날짜 표시
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'calendar-date';
+      dateSpan.textContent = `${day}일`;
+      cell.appendChild(dateSpan);
+
+      // 팔로워 수 표시
+      const followersSpan = document.createElement('span');
+      followersSpan.className = 'calendar-followers';
+      followersSpan.textContent = data ? formatNumber(data.count) : '-';
+      cell.appendChild(followersSpan);
+
+      // 변화량 표시
+      if (data) {
+        const changeSpan = document.createElement('span');
+        changeSpan.className = 'calendar-change';
+        if (data.change > 0) {
+          changeSpan.classList.add('positive');
+          changeSpan.textContent = `+${data.change}`;
+        } else if (data.change < 0) {
+          changeSpan.classList.add('negative');
+          changeSpan.textContent = String(data.change);
+        } else {
+          changeSpan.classList.add('zero');
+          changeSpan.textContent = '-';
         }
-      },
-      scales: {
-        x: {
-          grid: {
-            display: false
-          }
-        },
-        y: {
-          beginAtZero: false,
-          ticks: {
-            callback: (value) => formatNumber(value)
-          }
-        }
+        cell.appendChild(changeSpan);
       }
     }
-  });
+
+    grid.appendChild(cell);
+  }
 }
 
 /**
