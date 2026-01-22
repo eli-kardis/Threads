@@ -402,6 +402,64 @@ export async function updatePageStats(secret, pageId, stats, fieldMapping) {
 }
 
 /**
+ * 데이터베이스에서 모든 페이지 조회 (기간별 필터링)
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {Object} options - { dateField, since, limit }
+ * @returns {Promise<Array>}
+ */
+export async function queryAllPages(secret, databaseId, options = {}) {
+  const { dateField = 'Created', since, limit = 100 } = options;
+  const allPages = [];
+  let cursor = null;
+  let pageCount = 0;
+
+  do {
+    if (pageCount >= MAX_PAGINATION_PAGES) {
+      console.warn(`Reached max pagination pages (${MAX_PAGINATION_PAGES}), stopping`);
+      break;
+    }
+
+    const body = {
+      page_size: Math.min(limit - allPages.length, 100),
+      ...(cursor && { start_cursor: cursor })
+    };
+
+    // 날짜 필터 추가
+    if (since && dateField) {
+      body.filter = {
+        property: dateField,
+        date: { on_or_after: since }
+      };
+    }
+
+    // 최신순 정렬
+    body.sorts = [{
+      property: dateField,
+      direction: 'descending'
+    }];
+
+    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+
+    if (!response.results || !Array.isArray(response.results)) {
+      console.error('Invalid Notion API response:', response);
+      break;
+    }
+
+    allPages.push(...response.results);
+    cursor = response.has_more ? response.next_cursor : null;
+    pageCount++;
+
+    if (allPages.length >= limit) break;
+  } while (cursor);
+
+  return allPages.slice(0, limit);
+}
+
+/**
  * 데이터베이스에서 특정 URL을 가진 페이지 검색
  * @param {string} secret
  * @param {string} databaseId

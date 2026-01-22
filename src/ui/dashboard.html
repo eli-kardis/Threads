@@ -76,6 +76,59 @@
       padding: 32px;
     }
 
+    /* Account Tabs */
+    .account-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .account-tab {
+      padding: 8px 16px;
+      border: 2px solid #E5E7EB;
+      background: white;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #6B7280;
+    }
+
+    .account-tab:hover {
+      border-color: #1F3A5F;
+      color: #1F3A5F;
+    }
+
+    .account-tab.active {
+      background: #1F3A5F;
+      color: white;
+      border-color: #1F3A5F;
+    }
+
+    .account-tabs-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .cache-indicator {
+      font-size: 12px;
+      color: #9CA3AF;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .cache-indicator.loading {
+      color: #3B82F6;
+    }
+
+    .cache-indicator.fresh {
+      color: #10B981;
+    }
+
     /* Period Tabs */
     .period-tabs {
       display: flex;
@@ -627,6 +680,16 @@
   </header>
 
   <main class="container">
+    <!-- Account Tabs -->
+    <div class="account-tabs-container">
+      <div class="account-tabs" id="accountTabs">
+        <!-- 계정 탭이 동적으로 생성됩니다 -->
+      </div>
+      <div class="cache-indicator" id="cacheIndicator">
+        <span id="cacheStatus"></span>
+      </div>
+    </div>
+
     <!-- Period Tabs -->
     <div class="period-tabs">
       <button class="period-tab active" data-period="7">7일</button>

@@ -16,7 +16,11 @@ const STORAGE_KEYS = {
   LAST_SYNC_TIME: 'lastSyncTime',
   SYNCED_THREAD_IDS: 'syncedThreadIds',
   THREAD_PAGE_MAPPINGS: 'threadPageMappings',
-  FOLLOWERS_HISTORY: 'followersHistory'
+  FOLLOWERS_HISTORY: 'followersHistory',
+  // 멀티 계정 지원
+  ACCOUNTS: 'accounts',
+  CURRENT_ACCOUNT: 'currentAccount',
+  CACHED_DASHBOARD_DATA: 'cachedDashboardData'
 };
 
 // 스토리지 제한 상수
@@ -618,6 +622,189 @@ export async function getFollowersChangeStats() {
       percent: monthAgoCount > 0 ? ((monthChange / monthAgoCount) * 100).toFixed(2) : 0
     }
   };
+}
+
+// === 멀티 계정 관리 ===
+
+/**
+ * 모든 계정 목록 조회
+ * @returns {Promise<Array>} - [{ id, name, notionDbId, username }]
+ */
+export async function getAccounts() {
+  const accounts = await get(STORAGE_KEYS.ACCOUNTS);
+  return accounts || [];
+}
+
+/**
+ * 계정 추가/업데이트
+ * @param {Object} account - { id, name, notionDbId, username }
+ */
+export async function saveAccount(account) {
+  const accounts = await getAccounts();
+  const index = accounts.findIndex(a => a.id === account.id);
+
+  if (index >= 0) {
+    accounts[index] = { ...accounts[index], ...account };
+  } else {
+    accounts.push(account);
+  }
+
+  await set(STORAGE_KEYS.ACCOUNTS, accounts);
+}
+
+/**
+ * 계정 삭제
+ * @param {string} accountId
+ */
+export async function removeAccount(accountId) {
+  const accounts = await getAccounts();
+  const filtered = accounts.filter(a => a.id !== accountId);
+  await set(STORAGE_KEYS.ACCOUNTS, filtered);
+
+  // 현재 계정이 삭제된 계정이면 첫 번째 계정으로 변경
+  const current = await getCurrentAccountId();
+  if (current === accountId && filtered.length > 0) {
+    await setCurrentAccountId(filtered[0].id);
+  }
+}
+
+/**
+ * 현재 선택된 계정 ID 조회
+ * @returns {Promise<string|null>}
+ */
+export async function getCurrentAccountId() {
+  return await get(STORAGE_KEYS.CURRENT_ACCOUNT) || 'primary';
+}
+
+/**
+ * 현재 계정 ID 설정
+ * @param {string} accountId
+ */
+export async function setCurrentAccountId(accountId) {
+  await set(STORAGE_KEYS.CURRENT_ACCOUNT, accountId);
+}
+
+/**
+ * 현재 계정 정보 조회
+ * @returns {Promise<Object|null>}
+ */
+export async function getCurrentAccount() {
+  const accounts = await getAccounts();
+  const currentId = await getCurrentAccountId();
+  return accounts.find(a => a.id === currentId) || accounts[0] || null;
+}
+
+// === 대시보드 캐시 관리 ===
+
+/**
+ * 대시보드 데이터 캐시 저장
+ * @param {string} accountId
+ * @param {Object} data
+ */
+export async function setCachedDashboardData(accountId, data) {
+  const cache = await get(STORAGE_KEYS.CACHED_DASHBOARD_DATA) || {};
+  cache[accountId] = {
+    ...data,
+    cachedAt: new Date().toISOString()
+  };
+  await set(STORAGE_KEYS.CACHED_DASHBOARD_DATA, cache);
+}
+
+/**
+ * 대시보드 데이터 캐시 조회
+ * @param {string} accountId
+ * @returns {Promise<Object|null>}
+ */
+export async function getCachedDashboardData(accountId) {
+  const cache = await get(STORAGE_KEYS.CACHED_DASHBOARD_DATA) || {};
+  return cache[accountId] || null;
+}
+
+/**
+ * 모든 대시보드 캐시 삭제
+ */
+export async function clearDashboardCache() {
+  await remove(STORAGE_KEYS.CACHED_DASHBOARD_DATA);
+}
+
+/**
+ * 계정별 스토리지 키 프리픽스 생성
+ * @param {string} accountId
+ * @param {string} key
+ * @returns {string}
+ */
+function getAccountKey(accountId, key) {
+  return `${accountId}_${key}`;
+}
+
+/**
+ * 계정별 Thread-Page 매핑 조회
+ * @param {string} accountId
+ * @returns {Promise<Array>}
+ */
+export async function getAccountThreadPageMappings(accountId) {
+  const key = getAccountKey(accountId, 'threadPageMappings');
+  return await get(key) || [];
+}
+
+/**
+ * 계정별 Thread-Page 매핑 저장
+ * @param {string} accountId
+ * @param {Array} mappings
+ */
+export async function setAccountThreadPageMappings(accountId, mappings) {
+  const key = getAccountKey(accountId, 'threadPageMappings');
+  // 최근 500개만 유지
+  if (mappings.length > STORAGE_LIMITS.MAX_PAGE_MAPPINGS) {
+    mappings = mappings.slice(0, STORAGE_LIMITS.MAX_PAGE_MAPPINGS);
+  }
+  await set(key, mappings);
+}
+
+/**
+ * 계정별 팔로워 히스토리 조회
+ * @param {string} accountId
+ * @param {number} limit
+ * @returns {Promise<Array>}
+ */
+export async function getAccountFollowersHistory(accountId, limit = 90) {
+  const key = getAccountKey(accountId, 'followersHistory');
+  const history = await get(key) || [];
+  return history.slice(0, limit);
+}
+
+/**
+ * 계정별 팔로워 히스토리 저장
+ * @param {string} accountId
+ * @param {number} count
+ */
+export async function addAccountFollowersHistoryEntry(accountId, count) {
+  const key = getAccountKey(accountId, 'followersHistory');
+  const history = await get(key) || [];
+  const today = new Date().toISOString().split('T')[0];
+
+  const todayIndex = history.findIndex(h => h.date === today);
+  const previousCount = history.length > 0 ? history[0].count : count;
+  const change = todayIndex >= 0 ? history[todayIndex].change : count - previousCount;
+
+  const entry = {
+    date: today,
+    count,
+    change: todayIndex >= 0 ? count - (history[1]?.count || count) : change,
+    recordedAt: new Date().toISOString()
+  };
+
+  if (todayIndex >= 0) {
+    history[todayIndex] = entry;
+  } else {
+    history.unshift(entry);
+  }
+
+  if (history.length > STORAGE_LIMITS.MAX_FOLLOWERS_HISTORY) {
+    history.length = STORAGE_LIMITS.MAX_FOLLOWERS_HISTORY;
+  }
+
+  await set(key, history);
 }
 
 export { STORAGE_KEYS, clear as clearAll };

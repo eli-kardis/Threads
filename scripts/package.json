@@ -1,0 +1,14 @@
+{
+  "name": "threads-notion-sync",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "GitHub Actions sync scripts for Threads to Notion",
+  "scripts": {
+    "sync": "node sync/index.mjs",
+    "sync:hourly": "node sync/index.mjs --mode=hourly",
+    "sync:midnight": "node sync/index.mjs --mode=midnight"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

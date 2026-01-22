@@ -45,21 +45,16 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 /**
  * 동기화 알람 설정
+ * 참고: 백그라운드 동기화는 GitHub Actions에서 처리합니다.
+ * Extension은 대시보드 표시 및 수동 동기화만 담당합니다.
  */
 async function setupSyncAlarm() {
+  // GitHub Actions가 백그라운드 동기화를 담당하므로 syncThreads 알람 제거
+  chrome.alarms.clear('syncThreads');
+  log('Sync alarm cleared (GitHub Actions handles background sync)');
+
+  // 로컬 통계 새로고침은 필요시 유지 (Notion에서 최신 데이터 가져오기)
   const options = await storage.getSyncOptions();
-
-  if (options.autoSync) {
-    chrome.alarms.create('syncThreads', {
-      periodInMinutes: options.syncInterval || 5
-    });
-    log('Sync alarm set:', options.syncInterval || 5, 'minutes');
-  } else {
-    chrome.alarms.clear('syncThreads');
-    log('Sync alarm cleared');
-  }
-
-  // 매일 아침 9시 통계 새로고침 알람 설정
   await setupDailyStatsAlarm(options.dailyStatsRefresh);
 }
 
@@ -183,15 +178,15 @@ async function checkAndRefreshToken() {
 
 /**
  * 알람 이벤트 핸들러
+ * 참고: syncThreads 알람은 GitHub Actions로 이전되었습니다.
  */
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'syncThreads') {
-    await performSync({ limit: 10 }); // 자동 동기화: 10개만
-  } else if (alarm.name === 'dailyStatsRefresh') {
+  if (alarm.name === 'dailyStatsRefresh') {
     await refreshAllPostsStats();
   } else if (alarm.name === 'tokenRefreshCheck') {
     await checkAndRefreshToken();
   }
+  // syncThreads 알람은 더 이상 처리하지 않음 (GitHub Actions에서 처리)
 });
 
 /**
@@ -280,6 +275,40 @@ async function handleMessage(message, sender) {
 
     case 'RECORD_FOLLOWERS_NOW':
       await recordDailyFollowers();
+      return { success: true };
+
+    // === 멀티 계정 관리 ===
+    case 'GET_ACCOUNTS':
+      return await storage.getAccounts();
+
+    case 'GET_CURRENT_ACCOUNT_ID':
+      return await storage.getCurrentAccountId();
+
+    case 'SET_CURRENT_ACCOUNT':
+      await storage.setCurrentAccountId(message.accountId);
+      return { success: true };
+
+    case 'GET_CURRENT_ACCOUNT':
+      return await storage.getCurrentAccount();
+
+    case 'SAVE_ACCOUNT':
+      await storage.saveAccount(message.account);
+      return { success: true };
+
+    case 'REMOVE_ACCOUNT':
+      await storage.removeAccount(message.accountId);
+      return { success: true };
+
+    // === 대시보드 캐시 관리 ===
+    case 'GET_CACHED_DASHBOARD_DATA':
+      return await storage.getCachedDashboardData(message.accountId);
+
+    case 'SET_CACHED_DASHBOARD_DATA':
+      await storage.setCachedDashboardData(message.accountId, message.data);
+      return { success: true };
+
+    case 'CLEAR_DASHBOARD_CACHE':
+      await storage.clearDashboardCache();
       return { success: true };
 
     default:

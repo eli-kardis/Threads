@@ -1,0 +1,32 @@
+name: Hourly Threads Sync
+
+on:
+  schedule:
+    # KST 01:00~23:00 = UTC 16:00~14:00 (다음날)
+    # 매시간 정각에 실행 (자정 제외)
+    - cron: '0 16-23,0-14 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Hourly Sync
+        working-directory: scripts
+        env:
+          NOTION_SECRET: ${{ secrets.NOTION_SECRET }}
+          THREADS_TOKEN_PRIMARY: ${{ secrets.THREADS_TOKEN_PRIMARY }}
+          NOTION_DB_PRIMARY: ${{ secrets.NOTION_DB_PRIMARY }}
+          THREADS_TOKEN_SECONDARY: ${{ secrets.THREADS_TOKEN_SECONDARY }}
+          NOTION_DB_SECONDARY: ${{ secrets.NOTION_DB_SECONDARY }}
+        run: node sync/index.mjs --mode=hourly

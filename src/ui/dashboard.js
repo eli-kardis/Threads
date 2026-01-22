@@ -1,11 +1,14 @@
 /**
  * Dashboard 페이지 로직 - Threads 통계
+ * 멀티 계정 지원 + 하이브리드 로딩
  */
 
 let dailyChart = null;
 let currentPeriod = 7;
+let currentAccountId = 'primary'; // 현재 선택된 계정
 let calendarMonth = new Date(); // 현재 표시 중인 달력 월
 let followersHistoryData = []; // 팔로워 히스토리 데이터 캐시
+let isLoadingFresh = false; // 새 데이터 로딩 중 여부
 
 /**
  * Chart.js 인스턴스 정리 (메모리 누수 방지)
@@ -25,7 +28,132 @@ window.addEventListener('beforeunload', cleanupChart);
  */
 async function init() {
   setupEventListeners();
-  await loadDashboardData();
+
+  // 계정 목록 로드 및 탭 렌더링
+  await loadAccountTabs();
+
+  // 하이브리드 로딩: 캐시 먼저 표시 → 새 데이터 로드
+  await loadDashboardDataHybrid();
+}
+
+/**
+ * 계정 탭 로드 및 렌더링
+ */
+async function loadAccountTabs() {
+  try {
+    const accounts = await chrome.runtime.sendMessage({ type: 'GET_ACCOUNTS' });
+    currentAccountId = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_ACCOUNT_ID' });
+
+    renderAccountTabs(accounts, currentAccountId);
+  } catch (error) {
+    console.warn('Failed to load accounts, using default:', error);
+    // 계정이 없으면 기본 계정 표시
+    renderAccountTabs([], 'primary');
+  }
+}
+
+/**
+ * 계정 탭 렌더링 (안전한 DOM 메서드 사용)
+ */
+function renderAccountTabs(accounts, activeAccountId) {
+  const container = document.getElementById('accountTabs');
+  if (!container) return;
+
+  // 계정이 없거나 1개만 있으면 탭 숨김
+  if (accounts.length <= 1) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  container.replaceChildren(); // 기존 내용 제거
+
+  accounts.forEach(account => {
+    const btn = document.createElement('button');
+    btn.className = 'account-tab';
+    if (account.id === activeAccountId) {
+      btn.classList.add('active');
+    }
+    btn.dataset.account = account.id;
+    btn.textContent = `@${account.username || account.name}`;
+
+    // 계정 탭 클릭 이벤트
+    btn.addEventListener('click', async () => {
+      if (account.id === currentAccountId) return;
+
+      // 탭 활성화 상태 변경
+      container.querySelectorAll('.account-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // 계정 전환
+      currentAccountId = account.id;
+      await chrome.runtime.sendMessage({ type: 'SET_CURRENT_ACCOUNT', accountId: account.id });
+
+      // 데이터 다시 로드 (하이브리드)
+      await loadDashboardDataHybrid();
+    });
+
+    container.appendChild(btn);
+  });
+}
+
+/**
+ * 캐시 상태 표시
+ */
+function updateCacheIndicator(status, message) {
+  const indicator = document.getElementById('cacheIndicator');
+  const statusEl = document.getElementById('cacheStatus');
+  if (!indicator || !statusEl) return;
+
+  indicator.className = 'cache-indicator';
+  if (status === 'loading') {
+    indicator.classList.add('loading');
+    statusEl.textContent = message || '새 데이터 로딩 중...';
+  } else if (status === 'fresh') {
+    indicator.classList.add('fresh');
+    statusEl.textContent = message || '최신 데이터';
+  } else if (status === 'cached') {
+    statusEl.textContent = message || '캐시된 데이터';
+  } else {
+    statusEl.textContent = '';
+  }
+}
+
+/**
+ * 하이브리드 데이터 로딩 (캐시 → 새 데이터)
+ */
+async function loadDashboardDataHybrid() {
+  // 1. 캐시 먼저 표시
+  try {
+    const cachedData = await chrome.runtime.sendMessage({
+      type: 'GET_CACHED_DASHBOARD_DATA',
+      accountId: currentAccountId
+    });
+
+    if (cachedData) {
+      const cacheTime = cachedData.cachedAt
+        ? new Date(cachedData.cachedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      updateCacheIndicator('cached', `캐시 (${cacheTime})`);
+      applyDashboardData(cachedData);
+    }
+  } catch (error) {
+    console.warn('No cached data available');
+  }
+
+  // 2. 새 데이터 로드
+  isLoadingFresh = true;
+  updateCacheIndicator('loading', '새 데이터 로딩 중...');
+
+  try {
+    await loadDashboardData();
+    updateCacheIndicator('fresh', '최신 데이터');
+  } catch (error) {
+    console.error('Failed to load fresh data:', error);
+    updateCacheIndicator('cached', '새 데이터 로드 실패');
+  } finally {
+    isLoadingFresh = false;
+  }
 }
 
 /**
@@ -96,7 +224,7 @@ async function refreshAndReload() {
 }
 
 /**
- * 대시보드 데이터 로드
+ * 대시보드 데이터 로드 (새 데이터)
  */
 async function loadDashboardData() {
   try {
@@ -113,27 +241,59 @@ async function loadDashboardData() {
       chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_CHANGE_STATS' })
     ]);
 
-    // 현재 선택된 기간에 따라 인사이트 선택
-    const periodMap = { 7: 'week', 30: 'month', 90: 'total' };
-    const insights = allInsights[periodMap[currentPeriod]] || allInsights.week;
-    const totalInsights = allInsights.total;
+    // 데이터 객체 구성
+    const dashboardData = {
+      userInfo,
+      allInsights,
+      history,
+      mappings,
+      followersHistory,
+      followersStats
+    };
 
-    // 사용자 이름 및 게시글 수 표시
-    if (userInfo?.threads?.user?.username) {
-      const postCountText = insights.postCount ? ` (${insights.postCount}개 게시글 기준)` : '';
-      document.getElementById('usernameSubtitle').textContent =
-        `@${userInfo.threads.user.username}의 계정 인사이트${postCountText}`;
+    // 캐시에 저장
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'SET_CACHED_DASHBOARD_DATA',
+        accountId: currentAccountId,
+        data: dashboardData
+      });
+    } catch (e) {
+      console.warn('Failed to cache dashboard data:', e);
     }
 
-    updateStatsCards(insights);
-    updateCharts(mappings);
-    updateRatioStats(totalInsights);
-    updateFollowersHistory(followersHistory, followersStats, allInsights.followers_count);
-    updateBestTimeAnalysis(mappings);
-    updateHistoryTable(history, mappings);
+    // UI 적용
+    applyDashboardData(dashboardData);
   } catch (error) {
     console.error('Failed to load dashboard data:', error);
+    throw error;
   }
+}
+
+/**
+ * 대시보드 데이터를 UI에 적용
+ */
+function applyDashboardData(data) {
+  const { userInfo, allInsights, history, mappings, followersHistory, followersStats } = data;
+
+  // 현재 선택된 기간에 따라 인사이트 선택
+  const periodMap = { 7: 'week', 30: 'month', 90: 'total' };
+  const insights = allInsights?.[periodMap[currentPeriod]] || allInsights?.week || {};
+  const totalInsights = allInsights?.total || {};
+
+  // 사용자 이름 및 게시글 수 표시
+  if (userInfo?.threads?.user?.username) {
+    const postCountText = insights.postCount ? ` (${insights.postCount}개 게시글 기준)` : '';
+    document.getElementById('usernameSubtitle').textContent =
+      `@${userInfo.threads.user.username}의 계정 인사이트${postCountText}`;
+  }
+
+  updateStatsCards(insights);
+  updateCharts(mappings || []);
+  updateRatioStats(totalInsights);
+  updateFollowersHistory(followersHistory || [], followersStats || {}, allInsights?.followers_count || 0);
+  updateBestTimeAnalysis(mappings || []);
+  updateHistoryTable(history || [], mappings || []);
 }
 
 /**
