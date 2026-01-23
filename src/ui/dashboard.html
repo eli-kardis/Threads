@@ -368,59 +368,59 @@
       border-radius: 3px;
     }
 
-    /* Followers History */
+    /* Followers History - Compact */
     .followers-history {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
     }
 
     .followers-summary {
       display: flex;
       align-items: center;
-      gap: 40px;
+      gap: 32px;
     }
 
     .followers-current-box {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
     }
 
     .followers-count {
-      font-size: 48px;
+      font-size: 32px;
       font-weight: 700;
       color: #1F3A5F;
       line-height: 1;
     }
 
     .followers-label {
-      font-size: 14px;
+      font-size: 12px;
       color: #6B7280;
     }
 
     .followers-changes {
       display: flex;
-      gap: 24px;
+      gap: 12px;
     }
 
     .change-item {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding: 12px 16px;
+      gap: 2px;
+      padding: 8px 12px;
       background: #F9FAFB;
-      border-radius: 8px;
-      min-width: 80px;
+      border-radius: 6px;
+      min-width: 60px;
     }
 
     .change-label {
-      font-size: 12px;
+      font-size: 11px;
       color: #6B7280;
     }
 
     .change-value {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 600;
       color: #1F3A5F;
     }
@@ -441,45 +441,45 @@
       color: #9CA3AF;
     }
 
-    /* Followers Calendar */
+    /* Followers Calendar - Compact */
     .followers-calendar {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-top: 16px;
+      gap: 6px;
+      margin-top: 12px;
     }
 
     .calendar-header {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
-      gap: 4px;
+      gap: 3px;
       text-align: center;
     }
 
     .calendar-header span {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #9CA3AF;
-      padding: 4px 0;
+      padding: 2px 0;
     }
 
     .calendar-grid {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
-      gap: 4px;
+      gap: 3px;
     }
 
     .calendar-cell {
-      aspect-ratio: 1;
-      min-height: 60px;
+      aspect-ratio: 1.2;
+      min-height: 44px;
       background: #F9FAFB;
-      border-radius: 8px;
+      border-radius: 6px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 2px;
-      padding: 4px;
+      gap: 1px;
+      padding: 3px;
       transition: all 0.2s;
     }
 
@@ -501,7 +501,7 @@
     }
 
     .calendar-date {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       color: #6B7280;
     }
@@ -512,19 +512,19 @@
     }
 
     .calendar-followers {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 700;
       color: #1F3A5F;
     }
 
     .calendar-cell.no-data .calendar-followers {
-      font-size: 11px;
+      font-size: 10px;
       color: #9CA3AF;
       font-weight: 400;
     }
 
     .calendar-change {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 500;
     }
 
@@ -544,11 +544,11 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .calendar-month-label {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       color: #1F3A5F;
     }
@@ -556,9 +556,9 @@
     .calendar-nav-btn {
       background: #F3F4F6;
       border: none;
-      border-radius: 6px;
-      padding: 6px 12px;
-      font-size: 13px;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
       cursor: pointer;
       color: #374151;
       transition: background 0.2s;
@@ -694,7 +694,8 @@
     <div class="period-tabs">
       <button class="period-tab active" data-period="7">7일</button>
       <button class="period-tab" data-period="30">30일</button>
-      <button class="period-tab" data-period="90">전체</button>
+      <button class="period-tab" data-period="90">90일</button>
+      <button class="period-tab" data-period="9999">전체</button>
     </div>
 
     <!-- Stats Cards -->
@@ -805,6 +806,18 @@
               <div class="change-item">
                 <span class="change-label">30일</span>
                 <span class="change-value" id="monthChange">-</span>
+              </div>
+              <div class="change-item">
+                <span class="change-label">90일</span>
+                <span class="change-value" id="quarterChange">-</span>
+              </div>
+              <div class="change-item">
+                <span class="change-label">180일</span>
+                <span class="change-value" id="halfYearChange">-</span>
+              </div>
+              <div class="change-item">
+                <span class="change-label">1년</span>
+                <span class="change-value" id="yearChange">-</span>
               </div>
             </div>
           </div>

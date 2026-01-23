@@ -289,6 +289,19 @@ function buildProperties(threadPost, fieldMapping) {
     };
   }
 
+  // Thread ID 필드 (Rich Text) - API 호출용 숫자 ID
+  if (fieldMapping.threadId && threadPost.id) {
+    properties[fieldMapping.threadId] = {
+      rich_text: [
+        {
+          text: {
+            content: String(threadPost.id)
+          }
+        }
+      ]
+    };
+  }
+
   return properties;
 }
 
@@ -409,10 +422,11 @@ export async function updatePageStats(secret, pageId, stats, fieldMapping) {
  * @returns {Promise<Array>}
  */
 export async function queryAllPages(secret, databaseId, options = {}) {
-  const { dateField = 'Created', since, limit = 100 } = options;
+  const { dateField, since, limit = 100 } = options;
   const allPages = [];
   let cursor = null;
   let pageCount = 0;
+  let useSorting = !!dateField; // dateField가 명시된 경우에만 정렬 시도
 
   do {
     if (pageCount >= MAX_PAGINATION_PAGES) {
@@ -425,7 +439,7 @@ export async function queryAllPages(secret, databaseId, options = {}) {
       ...(cursor && { start_cursor: cursor })
     };
 
-    // 날짜 필터 추가
+    // 날짜 필터 추가 (필드가 지정된 경우만)
     if (since && dateField) {
       body.filter = {
         property: dateField,
@@ -433,27 +447,52 @@ export async function queryAllPages(secret, databaseId, options = {}) {
       };
     }
 
-    // 최신순 정렬
-    body.sorts = [{
-      property: dateField,
-      direction: 'descending'
-    }];
-
-    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
-
-    if (!response.results || !Array.isArray(response.results)) {
-      console.error('Invalid Notion API response:', response);
-      break;
+    // 최신순 정렬 (dateField가 있고 정렬이 활성화된 경우만)
+    if (useSorting && dateField) {
+      body.sorts = [{
+        property: dateField,
+        direction: 'descending'
+      }];
     }
 
-    allPages.push(...response.results);
-    cursor = response.has_more ? response.next_cursor : null;
-    pageCount++;
+    try {
+      const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
 
-    if (allPages.length >= limit) break;
+      if (!response.results || !Array.isArray(response.results)) {
+        console.error('Invalid Notion API response:', response);
+        break;
+      }
+
+      allPages.push(...response.results);
+      cursor = response.has_more ? response.next_cursor : null;
+      pageCount++;
+
+      if (allPages.length >= limit) break;
+    } catch (error) {
+      // 정렬 필드 오류인 경우 정렬 없이 재시도
+      if (error.message.includes('sort property') && useSorting) {
+        console.warn(`Sort field "${dateField}" not found, retrying without sorting`);
+        useSorting = false;
+        delete body.sorts;
+        delete body.filter; // 필터도 같은 필드 사용하면 실패할 수 있음
+
+        const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+          method: 'POST',
+          body: JSON.stringify(body)
+        });
+
+        if (response.results && Array.isArray(response.results)) {
+          allPages.push(...response.results);
+          cursor = response.has_more ? response.next_cursor : null;
+          pageCount++;
+        }
+      } else {
+        throw error;
+      }
+    }
   } while (cursor);
 
   return allPages.slice(0, limit);

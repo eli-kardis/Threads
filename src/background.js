@@ -15,9 +15,9 @@ const log = DEBUG ? console.log.bind(console) : () => {};
 // 동기화 상태 (Promise 기반 락)
 let syncPromise = null;
 
-// 팔로워 수 캐시 (1분 유효 - 데이터 신선도 유지)
-const FOLLOWERS_CACHE_TTL = 60 * 1000;
-let followersCache = { count: 0, fetchedAt: 0 };
+// 팔로워 수 캐시 (1시간 유효 - 계정별 캐싱)
+const FOLLOWERS_CACHE_TTL = 60 * 60 * 1000; // 1시간
+const followersCacheByAccount = new Map(); // accountId -> { count, fetchedAt }
 
 // 요청 결합 (Request Coalescing) - 동일 요청 중복 방지
 const pendingInsightsRequests = new Map();
@@ -265,17 +265,55 @@ async function handleMessage(message, sender) {
       return await getAllInsights();
 
     case 'GET_THREAD_MAPPINGS':
+      // 계정별 캐시 우선 사용, forceRefresh면 Notion API 호출
+      if (message.accountId) {
+        const accounts = await storage.getAccounts();
+        const account = accounts.find(a => a.id === message.accountId);
+
+        if (account?.notionDbId) {
+          // forceRefresh가 아니면 캐시 먼저 확인
+          if (!message.forceRefresh) {
+            const cached = await storage.getAccountThreadPageMappings(message.accountId);
+            if (cached && cached.length > 0) {
+              console.log(`[Dashboard] Using cached mappings for ${message.accountId}: ${cached.length} items`);
+              return cached;
+            }
+          }
+
+          // 캐시 없거나 forceRefresh → Notion API 호출 후 캐시 저장
+          const mappings = await getThreadMappingsFromNotion(message.accountId);
+          if (mappings.length > 0) {
+            await storage.setAccountThreadPageMappings(message.accountId, mappings);
+            console.log(`[Dashboard] Cached ${mappings.length} mappings for ${message.accountId}`);
+          }
+          return mappings;
+        }
+      }
+      // 기존 방식: 로컬 스토리지에서 조회
       return await storage.getThreadPageMappings();
 
     case 'GET_FOLLOWERS_HISTORY':
+      // 계정별 팔로워 히스토리 지원
+      if (message.accountId) {
+        return await storage.getAccountFollowersHistory(message.accountId, message.limit || 90);
+      }
       return await storage.getFollowersHistory(message.limit || 90);
 
     case 'GET_FOLLOWERS_CHANGE_STATS':
+      // 계정별 팔로워 변화 통계 지원
+      if (message.accountId) {
+        return await getAccountFollowersChangeStats(message.accountId);
+      }
       return await storage.getFollowersChangeStats();
 
     case 'RECORD_FOLLOWERS_NOW':
-      await recordDailyFollowers();
+      // 계정별 팔로워 기록 지원
+      await recordDailyFollowers(message.accountId);
       return { success: true };
+
+    case 'REFRESH_ACCOUNT_INSIGHTS':
+      // 계정별 인사이트 새로고침 (계정 토큰 사용)
+      return await refreshAccountInsights(message.accountId);
 
     // === 멀티 계정 관리 ===
     case 'GET_ACCOUNTS':
@@ -310,6 +348,9 @@ async function handleMessage(message, sender) {
     case 'CLEAR_DASHBOARD_CACHE':
       await storage.clearDashboardCache();
       return { success: true };
+
+    case 'MIGRATE_THREAD_IDS':
+      return await migrateThreadIds(message.accountId);
 
     default:
       throw new Error(`Unknown message type: ${message.type}`);
@@ -924,6 +965,169 @@ async function listNotionDatabases() {
 }
 
 /**
+ * 계정별 Notion DB에서 스레드 매핑 조회
+ * @param {string} accountId - 계정 ID
+ * @returns {Promise<Array>}
+ */
+async function getThreadMappingsFromNotion(accountId) {
+  try {
+    const [accounts, notionSecret] = await Promise.all([
+      storage.getAccounts(),
+      storage.getNotionSecret()
+    ]);
+
+    const account = accounts.find(a => a.id === accountId);
+    if (!account || !account.notionDbId) {
+      log(`No account or DB ID found for accountId: ${accountId}`);
+      return [];
+    }
+
+    if (!notionSecret) {
+      log('No Notion secret configured');
+      return [];
+    }
+
+    console.log(`[Dashboard] Querying Notion DB ${account.notionDbId} for account ${accountId}`);
+
+    // Notion API로 데이터베이스의 모든 페이지 조회 (무제한)
+    let pages;
+    try {
+      pages = await notionApi.queryAllPages(notionSecret, account.notionDbId, { limit: Infinity });
+    } catch (notionError) {
+      console.error(`[Dashboard] Notion API error for DB ${account.notionDbId}:`, notionError.message);
+      // 권한 오류인 경우 사용자에게 안내
+      if (notionError.message.includes('Could not find database')) {
+        console.error('[Dashboard] 해결방법: Notion에서 해당 데이터베이스를 열고 "..." → "연결 추가"에서 Integration을 추가하세요.');
+      }
+      return [];
+    }
+
+    console.log(`[Dashboard] Found ${pages.length} pages from Notion DB ${account.notionDbId}`);
+
+    // 첫 번째 페이지의 프로퍼티 구조 로깅 (디버그용)
+    if (pages.length > 0) {
+      const sampleProps = pages[0].properties || {};
+      console.log('[Dashboard] Sample page properties:', Object.keys(sampleProps).map(k => `${k}(${sampleProps[k].type})`));
+    }
+
+    // 매핑 형식으로 변환
+    const mappings = pages.map(page => {
+      const props = page.properties || {};
+
+      // 필드 값 추출 헬퍼
+      const getText = (prop) => {
+        if (!prop) return '';
+        if (prop.title) return prop.title[0]?.plain_text || '';
+        if (prop.rich_text) return prop.rich_text[0]?.plain_text || '';
+        if (prop.url) return prop.url || '';
+        return '';
+      };
+
+      const getNumber = (prop) => {
+        if (!prop) return 0;
+        if (prop.number !== undefined) return prop.number || 0;
+        return 0;
+      };
+
+      const getDate = (prop) => {
+        if (!prop) return null;
+        if (prop.date) return prop.date.start || null;
+        if (prop.created_time) return prop.created_time || null;
+        return null;
+      };
+
+      // 제목 필드 찾기 (title 타입)
+      let title = '';
+      for (const [key, val] of Object.entries(props)) {
+        if (val.type === 'title') {
+          title = getText(val);
+          break;
+        }
+      }
+
+      // URL 필드 찾기
+      let sourceUrl = '';
+      for (const [key, val] of Object.entries(props)) {
+        if (val.type === 'url' || key.toLowerCase().includes('url') || key.toLowerCase().includes('링크')) {
+          sourceUrl = getText(val);
+          if (sourceUrl) break;
+        }
+      }
+
+      // 날짜 필드 찾기
+      let postCreatedAt = null;
+      for (const [key, val] of Object.entries(props)) {
+        if (val.type === 'date' || key.toLowerCase().includes('작성') || key.toLowerCase().includes('created') || key.toLowerCase().includes('날짜')) {
+          postCreatedAt = getDate(val);
+          if (postCreatedAt) break;
+        }
+      }
+
+      // 인사이트 필드 찾기 (number 타입 필드 모두 검사)
+      const insights = {
+        views: 0,
+        likes: 0,
+        replies: 0,
+        reposts: 0,
+        quotes: 0,
+        shares: 0
+      };
+
+      for (const [key, val] of Object.entries(props)) {
+        if (val.type !== 'number') continue;
+
+        const keyLower = key.toLowerCase();
+        if (keyLower.includes('조회') || keyLower.includes('view')) {
+          insights.views = getNumber(val);
+        } else if (keyLower.includes('좋아요') || keyLower.includes('like')) {
+          insights.likes = getNumber(val);
+        } else if (keyLower.includes('답글') || keyLower.includes('댓글') || keyLower.includes('repl') || keyLower.includes('comment')) {
+          insights.replies = getNumber(val);
+        } else if (keyLower.includes('리포스트') || keyLower.includes('repost')) {
+          insights.reposts = getNumber(val);
+        } else if (keyLower.includes('인용') || keyLower.includes('quote')) {
+          insights.quotes = getNumber(val);
+        } else if (keyLower.includes('공유') || keyLower.includes('share')) {
+          insights.shares = getNumber(val);
+        }
+      }
+
+      // Thread ID 필드 찾기 (rich_text 타입, 숫자 ID)
+      let threadId = null;
+      for (const [key, val] of Object.entries(props)) {
+        const keyLower = key.toLowerCase();
+        if (keyLower.includes('thread') && keyLower.includes('id')) {
+          threadId = getText(val);
+          if (threadId && /^\d+$/.test(threadId)) break;
+        }
+      }
+
+      // threadId가 없거나 숫자가 아니면 URL에서 추출 (fallback)
+      const fallbackThreadId = sourceUrl ? sourceUrl.split('/').pop() : page.id;
+
+      return {
+        notionPageId: page.id,
+        title,
+        sourceUrl,
+        postCreatedAt: postCreatedAt || page.created_time,
+        insights,
+        threadId: (threadId && /^\d+$/.test(threadId)) ? threadId : fallbackThreadId
+      };
+    });
+
+    // 인사이트 합계 로깅 (디버그용)
+    const totalViews = mappings.reduce((sum, m) => sum + (m.insights?.views || 0), 0);
+    console.log(`[Dashboard] Mappings: ${mappings.length}, Total views: ${totalViews}`);
+
+    log(`Found ${mappings.length} pages from Notion DB`);
+    return mappings;
+  } catch (error) {
+    console.error('Failed to get thread mappings from Notion:', error);
+    return [];
+  }
+}
+
+/**
  * 연결 테스트
  */
 async function testConnections() {
@@ -942,26 +1146,320 @@ async function testConnections() {
 }
 
 /**
- * 일일 팔로워 수 기록
+ * 계정별 인사이트 새로고침 (해당 계정의 토큰 사용)
+ * Threads API에서 게시글 목록을 가져와 Notion 페이지와 매칭
+ * @param {string} accountId - 계정 ID
+ * @returns {Promise<Object>}
  */
-async function recordDailyFollowers() {
+async function refreshAccountInsights(accountId) {
+  console.log(`[Background] refreshAccountInsights for ${accountId}`);
+
+  try {
+    const [accounts, notionSecret] = await Promise.all([
+      storage.getAccounts(),
+      storage.getNotionSecret()
+    ]);
+
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) {
+      return { success: false, error: '계정을 찾을 수 없습니다' };
+    }
+
+    if (!account.threadsToken) {
+      return { success: false, error: '계정에 Threads 토큰이 설정되지 않았습니다' };
+    }
+
+    if (!account.notionDbId) {
+      return { success: false, error: '계정에 Notion DB가 설정되지 않았습니다' };
+    }
+
+    // 1. Threads API에서 최근 게시글 가져오기 (permalink 포함)
+    console.log(`[Background] Fetching threads from API...`);
+    const threadsResponse = await threadsApi.getUserThreads(account.threadsToken, { limit: 50 });
+    const threads = (threadsResponse.data || [])
+      .filter(t => !t.is_quote_post && t.media_type !== 'REPOST_FACADE');
+    console.log(`[Background] Found ${threads.length} threads from API`);
+
+    if (threads.length === 0) {
+      return { success: true, refreshedCount: 0, message: '게시글이 없습니다' };
+    }
+
+    // 2. Notion DB에서 페이지 가져오기
+    const pages = await notionApi.queryAllPages(notionSecret, account.notionDbId, { limit: 200 });
+    console.log(`[Background] Found ${pages.length} pages in Notion DB`);
+
+    // 3. Notion 페이지의 URL을 맵으로 만들기 (URL -> pageId)
+    const urlToPageMap = new Map();
+    for (const page of pages) {
+      const props = page.properties || {};
+      for (const [key, val] of Object.entries(props)) {
+        if (val.type === 'url' && val.url) {
+          urlToPageMap.set(val.url, page.id);
+          break;
+        }
+      }
+    }
+    console.log(`[Background] Built URL map with ${urlToPageMap.size} entries`);
+
+    // 4. Notion 페이지의 Thread ID 맵 생성 (threadId -> pageId)
+    const threadIdToPageMap = new Map();
+    for (const page of pages) {
+      const props = page.properties || {};
+
+      // Thread ID 필드 찾기 (숫자 ID)
+      let pageThreadId = null;
+      for (const [key, val] of Object.entries(props)) {
+        const keyLower = key.toLowerCase();
+        if (keyLower.includes('thread') && keyLower.includes('id')) {
+          if (val.rich_text && val.rich_text[0]?.plain_text) {
+            const tid = val.rich_text[0].plain_text;
+            if (/^\d+$/.test(tid)) {
+              pageThreadId = tid;
+              break;
+            }
+          }
+        }
+      }
+
+      if (pageThreadId) {
+        threadIdToPageMap.set(pageThreadId, page.id);
+      }
+    }
+    console.log(`[Background] Built Thread ID map with ${threadIdToPageMap.size} entries`);
+
+    // 5. 각 Thread에 대해 인사이트 가져와서 Notion 업데이트
+    let refreshedCount = 0;
+    let errorCount = 0;
+
+    const fieldMapping = {
+      views: '조회수',
+      likes: '좋아요',
+      replies: '댓글',
+      reposts: '리포스트',
+      quotes: '인용',
+      shares: '공유'
+    };
+
+    for (const thread of threads) {
+      try {
+        // 1순위: Thread ID로 Notion 페이지 찾기
+        let targetPageId = threadIdToPageMap.get(String(thread.id));
+
+        // 2순위: URL로 Notion 페이지 찾기 (fallback)
+        if (!targetPageId) {
+          const permalink = thread.permalink;
+          targetPageId = urlToPageMap.get(permalink);
+
+          if (!targetPageId) {
+            // permalink 변형 시도 (www 유무, http/https)
+            const altPermalinks = [
+              permalink,
+              permalink?.replace('www.', ''),
+              permalink?.replace('https://', 'https://www.'),
+            ].filter(Boolean);
+
+            for (const alt of altPermalinks) {
+              if (urlToPageMap.has(alt)) {
+                targetPageId = urlToPageMap.get(alt);
+                break;
+              }
+            }
+          }
+        }
+
+        if (!targetPageId) {
+          continue; // Notion에 없는 게시글은 스킵
+        }
+
+        // Threads API에서 인사이트 조회 (숫자 ID 사용)
+        const insights = await threadsApi.getThreadInsights(account.threadsToken, thread.id);
+        console.log(`[Background] Thread ${thread.id}: views=${insights.views}, likes=${insights.likes}`);
+
+        // Notion 페이지 업데이트
+        await notionApi.updatePageStats(notionSecret, targetPageId, insights, fieldMapping);
+        refreshedCount++;
+
+        // Rate limit
+        await sleep(350);
+      } catch (err) {
+        console.error(`[Background] Failed to refresh thread ${thread.id}:`, err.message);
+        errorCount++;
+      }
+    }
+
+    // 캐시 무효화
+    await storage.setAccountThreadPageMappings(accountId, []);
+
+    console.log(`[Background] Account insights refresh complete: ${refreshedCount} updated, ${errorCount} errors`);
+
+    return {
+      success: true,
+      refreshedCount,
+      errorCount,
+      message: `${refreshedCount}개 게시글 인사이트 업데이트 완료`
+    };
+  } catch (error) {
+    console.error('[Background] refreshAccountInsights error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 일일 팔로워 수 기록 (계정별 지원)
+ * @param {string} accountId - 계정 ID (없으면 전역)
+ */
+async function recordDailyFollowers(accountId) {
   log('Recording daily followers count...');
 
   try {
-    const settings = await storage.getAllSettings();
-    if (!settings.threadsToken) {
+    // 계정별 토큰 사용
+    let token = null;
+
+    if (accountId) {
+      const accounts = await storage.getAccounts();
+      const account = accounts.find(a => a.id === accountId);
+      if (account?.threadsToken) {
+        token = account.threadsToken;
+        log(`Using account-specific token for ${accountId}`);
+      }
+    }
+
+    // 계정별 토큰이 없으면 전역 토큰 사용 (하위 호환)
+    if (!token) {
+      const settings = await storage.getAllSettings();
+      token = settings.threadsToken;
+    }
+
+    if (!token) {
       log('No token, skipping followers recording');
       return;
     }
 
-    const followersCount = await getCachedFollowersCount(settings.threadsToken);
+    const followersCount = await getCachedFollowersCount(token, accountId || 'default');
     if (followersCount > 0) {
-      await storage.addFollowersHistoryEntry(followersCount);
-      log(`Recorded daily followers: ${followersCount}`);
+      // 계정별 저장
+      if (accountId) {
+        await storage.addAccountFollowersHistoryEntry(accountId, followersCount);
+        log(`Recorded daily followers for ${accountId}: ${followersCount}`);
+      } else {
+        // 전역 저장 (하위 호환)
+        await storage.addFollowersHistoryEntry(followersCount);
+        log(`Recorded daily followers: ${followersCount}`);
+      }
     }
   } catch (error) {
     console.error('Failed to record daily followers:', error);
   }
+}
+
+/**
+ * 계정별 팔로워 변화 통계 계산
+ * @param {string} accountId
+ * @returns {Promise<Object>}
+ */
+async function getAccountFollowersChangeStats(accountId) {
+  const history = await storage.getAccountFollowersHistory(accountId, 365);
+
+  // 현재 팔로워 수는 해당 계정의 토큰으로 조회
+  let currentFromApi = 0;
+  if (accountId) {
+    const accounts = await storage.getAccounts();
+    const account = accounts.find(a => a.id === accountId);
+    if (account?.threadsToken) {
+      try {
+        currentFromApi = await getCachedFollowersCount(account.threadsToken, accountId);
+      } catch (err) {
+        console.warn(`Failed to get followers for ${accountId}:`, err);
+      }
+    }
+  }
+
+  if (!history || history.length === 0) {
+    return {
+      current: currentFromApi,
+      today: { change: 0, percent: 0 },
+      week: { change: 0, percent: 0 },
+      month: { change: 0, percent: 0 },
+      quarter: { change: 0, percent: 0 },
+      halfYear: { change: 0, percent: 0 },
+      year: { change: 0, percent: 0 }
+    };
+  }
+
+  const current = currentFromApi > 0 ? currentFromApi : (history[0]?.count || 0);
+  const today = new Date().toISOString().split('T')[0];
+
+  // 오늘 변화량
+  const todayEntry = history.find(h => h.date === today);
+  const todayChange = todayEntry?.change || 0;
+
+  // 7일 전 팔로워 수
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const weekAgoDate = sevenDaysAgo.toISOString().split('T')[0];
+  const weekAgoEntry = history.find(h => h.date <= weekAgoDate);
+  const weekAgoCount = weekAgoEntry?.count || current;
+  const weekChange = current - weekAgoCount;
+
+  // 30일 전 팔로워 수
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const monthAgoDate = thirtyDaysAgo.toISOString().split('T')[0];
+  const monthAgoEntry = history.find(h => h.date <= monthAgoDate);
+  const monthAgoCount = monthAgoEntry?.count || current;
+  const monthChange = current - monthAgoCount;
+
+  // 90일 전 팔로워 수
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const quarterAgoDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const quarterAgoEntry = history.find(h => h.date <= quarterAgoDate);
+  const quarterAgoCount = quarterAgoEntry?.count || current;
+  const quarterChange = current - quarterAgoCount;
+
+  // 180일 전 팔로워 수
+  const oneEightyDaysAgo = new Date();
+  oneEightyDaysAgo.setDate(oneEightyDaysAgo.getDate() - 180);
+  const halfYearAgoDate = oneEightyDaysAgo.toISOString().split('T')[0];
+  const halfYearAgoEntry = history.find(h => h.date <= halfYearAgoDate);
+  const halfYearAgoCount = halfYearAgoEntry?.count || current;
+  const halfYearChange = current - halfYearAgoCount;
+
+  // 365일(1년) 전 팔로워 수
+  const oneYearAgo = new Date();
+  oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+  const yearAgoDate = oneYearAgo.toISOString().split('T')[0];
+  const yearAgoEntry = history.find(h => h.date <= yearAgoDate);
+  const yearAgoCount = yearAgoEntry?.count || current;
+  const yearChange = current - yearAgoCount;
+
+  return {
+    current,
+    today: {
+      change: todayChange,
+      percent: weekAgoCount > 0 ? ((todayChange / weekAgoCount) * 100).toFixed(2) : 0
+    },
+    week: {
+      change: weekChange,
+      percent: weekAgoCount > 0 ? ((weekChange / weekAgoCount) * 100).toFixed(2) : 0
+    },
+    month: {
+      change: monthChange,
+      percent: monthAgoCount > 0 ? ((monthChange / monthAgoCount) * 100).toFixed(2) : 0
+    },
+    quarter: {
+      change: quarterChange,
+      percent: quarterAgoCount > 0 ? ((quarterChange / quarterAgoCount) * 100).toFixed(2) : 0
+    },
+    halfYear: {
+      change: halfYearChange,
+      percent: halfYearAgoCount > 0 ? ((halfYearChange / halfYearAgoCount) * 100).toFixed(2) : 0
+    },
+    year: {
+      change: yearChange,
+      percent: yearAgoCount > 0 ? ((yearChange / yearAgoCount) * 100).toFixed(2) : 0
+    }
+  };
 }
 
 /**
@@ -1054,31 +1552,34 @@ async function refreshAllPostsStats() {
 }
 
 /**
- * 캐시된 팔로워 수 조회 (1분 TTL)
+ * 캐시된 팔로워 수 조회 (계정별 1시간 TTL)
  * @param {string} token - Threads 액세스 토큰
+ * @param {string} accountId - 계정 ID (캐시 키)
  * @returns {Promise<number>}
  */
-async function getCachedFollowersCount(token) {
+async function getCachedFollowersCount(token, accountId = 'default') {
   const now = Date.now();
+  const cached = followersCacheByAccount.get(accountId);
 
   // 캐시가 유효하면 캐시된 값 반환
-  if (now - followersCache.fetchedAt < FOLLOWERS_CACHE_TTL && followersCache.count > 0) {
-    log('Using cached followers count:', followersCache.count);
-    return followersCache.count;
+  if (cached && (now - cached.fetchedAt < FOLLOWERS_CACHE_TTL) && cached.count > 0) {
+    log(`Using cached followers count for ${accountId}:`, cached.count);
+    return cached.count;
   }
 
   // 캐시 만료 - API 호출
   try {
     const accountInsights = await threadsApi.getAccountInsights(token, { period: 7 });
-    followersCache = {
+    const newCache = {
       count: accountInsights.followers_count || 0,
       fetchedAt: now
     };
-    log('Fetched fresh followers count:', followersCache.count);
-    return followersCache.count;
+    followersCacheByAccount.set(accountId, newCache);
+    log(`Fetched fresh followers count for ${accountId}:`, newCache.count);
+    return newCache.count;
   } catch (error) {
-    console.warn('Failed to get followers count:', error);
-    return followersCache.count || 0; // 실패 시 기존 캐시 반환
+    console.warn(`Failed to get followers count for ${accountId}:`, error);
+    return cached?.count || 0; // 실패 시 기존 캐시 반환
   }
 }
 
@@ -1120,10 +1621,10 @@ async function getAllInsights() {
   const month = aggregateByPeriod(mappings, 30);
   const total = aggregateByPeriod(mappings, 90);
 
-  // 팔로워 수는 캐시된 값 사용
+  // 팔로워 수는 캐시된 값 사용 (전역 설정용)
   let followers_count = 0;
   if (settings.threadsToken) {
-    followers_count = await getCachedFollowersCount(settings.threadsToken);
+    followers_count = await getCachedFollowersCount(settings.threadsToken, 'default');
   }
 
   return {
@@ -1188,11 +1689,11 @@ async function getAggregatedInsights(period) {
   const aggregated = aggregateByPeriod(mappings, period);
   aggregated.fetchedAt = new Date().toISOString();
 
-  // 팔로워 수는 캐시된 값 사용
+  // 팔로워 수는 캐시된 값 사용 (전역 설정용)
   try {
     const settings = await storage.getAllSettings();
     if (settings.threadsToken) {
-      aggregated.followers_count = await getCachedFollowersCount(settings.threadsToken);
+      aggregated.followers_count = await getCachedFollowersCount(settings.threadsToken, 'default');
     }
   } catch (error) {
     console.warn('Failed to get followers count:', error);
@@ -1217,6 +1718,155 @@ function showNotification(title, message, type = 'info') {
     message,
     priority: type === 'error' ? 2 : 1
   });
+}
+
+/**
+ * 기존 Notion 페이지에 Thread ID 마이그레이션
+ * Threads API에서 게시글 목록을 가져와 URL 매칭으로 Thread ID 업데이트
+ * @param {string} accountId - 계정 ID
+ * @returns {Promise<Object>}
+ */
+async function migrateThreadIds(accountId) {
+  console.log(`[Background] migrateThreadIds for ${accountId}`);
+
+  try {
+    const [accounts, notionSecret, fieldMapping] = await Promise.all([
+      storage.getAccounts(),
+      storage.getNotionSecret(),
+      storage.getFieldMapping()
+    ]);
+
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) {
+      return { success: false, error: '계정을 찾을 수 없습니다' };
+    }
+
+    if (!account.threadsToken) {
+      return { success: false, error: '계정에 Threads 토큰이 설정되지 않았습니다' };
+    }
+
+    if (!account.notionDbId) {
+      return { success: false, error: '계정에 Notion DB가 설정되지 않았습니다' };
+    }
+
+    // Thread ID 필드 이름 확인
+    const threadIdFieldName = fieldMapping?.threadId;
+    if (!threadIdFieldName) {
+      return { success: false, error: 'Thread ID 필드 매핑이 설정되지 않았습니다. 설정 페이지에서 Thread ID 필드를 매핑해주세요.' };
+    }
+
+    // 1. Threads API에서 모든 게시글 가져오기 (숫자 ID 포함)
+    console.log(`[Background] Fetching all threads from API...`);
+    const threads = await threadsApi.getAllUserThreads(account.threadsToken, { since: null });
+    console.log(`[Background] Found ${threads.length} threads from API`);
+
+    if (threads.length === 0) {
+      return { success: true, migratedCount: 0, message: '게시글이 없습니다' };
+    }
+
+    // 2. Notion DB에서 모든 페이지 가져오기
+    const pages = await notionApi.queryAllPages(notionSecret, account.notionDbId, { limit: Infinity });
+    console.log(`[Background] Found ${pages.length} pages in Notion DB`);
+
+    // 3. URL -> Thread(숫자 ID) 맵 생성
+    const urlToThreadMap = new Map();
+    for (const thread of threads) {
+      if (thread.permalink) {
+        // URL 정규화 (www 유무, 트레일링 슬래시 등)
+        const normalizedUrl = thread.permalink.replace(/\/$/, '');
+        urlToThreadMap.set(normalizedUrl, thread);
+        // www 없는 버전도 추가
+        urlToThreadMap.set(normalizedUrl.replace('www.', ''), thread);
+        // www 있는 버전도 추가
+        if (!normalizedUrl.includes('www.')) {
+          urlToThreadMap.set(normalizedUrl.replace('https://', 'https://www.'), thread);
+        }
+      }
+    }
+    console.log(`[Background] Built URL map with ${urlToThreadMap.size} entries`);
+
+    // 4. 각 Notion 페이지에 대해 Thread ID 업데이트
+    let migratedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    for (const page of pages) {
+      try {
+        const props = page.properties || {};
+
+        // 이미 Thread ID가 있는지 확인
+        let existingThreadId = '';
+        for (const [key, val] of Object.entries(props)) {
+          if (key === threadIdFieldName || key.toLowerCase().includes('thread') && key.toLowerCase().includes('id')) {
+            if (val.rich_text && val.rich_text[0]?.plain_text) {
+              existingThreadId = val.rich_text[0].plain_text;
+            }
+            break;
+          }
+        }
+
+        // 이미 숫자 형태의 Thread ID가 있으면 스킵
+        if (existingThreadId && /^\d+$/.test(existingThreadId)) {
+          skippedCount++;
+          continue;
+        }
+
+        // URL 필드 찾기
+        let pageUrl = '';
+        for (const [key, val] of Object.entries(props)) {
+          if (val.type === 'url' && val.url) {
+            pageUrl = val.url.replace(/\/$/, '');
+            break;
+          }
+        }
+
+        if (!pageUrl) {
+          skippedCount++;
+          continue;
+        }
+
+        // URL로 Thread 찾기
+        const thread = urlToThreadMap.get(pageUrl) ||
+                       urlToThreadMap.get(pageUrl.replace('www.', '')) ||
+                       urlToThreadMap.get(pageUrl.replace('https://', 'https://www.'));
+
+        if (!thread) {
+          skippedCount++;
+          continue;
+        }
+
+        // Thread ID 업데이트
+        const updateProps = {
+          [threadIdFieldName]: {
+            rich_text: [{ text: { content: String(thread.id) } }]
+          }
+        };
+
+        await notionApi.updatePage(notionSecret, page.id, updateProps);
+        migratedCount++;
+        console.log(`[Background] Migrated Thread ID ${thread.id} for page ${page.id}`);
+
+        // Rate limit
+        await sleep(350);
+      } catch (err) {
+        console.error(`[Background] Failed to migrate page ${page.id}:`, err.message);
+        errorCount++;
+      }
+    }
+
+    console.log(`[Background] Migration complete: ${migratedCount} migrated, ${skippedCount} skipped, ${errorCount} errors`);
+
+    return {
+      success: true,
+      migratedCount,
+      skippedCount,
+      errorCount,
+      message: `${migratedCount}개 페이지에 Thread ID 추가 완료 (${skippedCount}개 스킵, ${errorCount}개 오류)`
+    };
+  } catch (error) {
+    console.error('[Background] migrateThreadIds error:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 // 서비스 워커 활성화 로그

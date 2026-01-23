@@ -461,6 +461,147 @@
     .btn-configured:hover {
       background: #D1FAE5;
     }
+
+    /* 계정 목록 스타일 */
+    .accounts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .account-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: #F9FAFB;
+      border-radius: 12px;
+      border: 1px solid #E5E7EB;
+    }
+
+    .account-item.active {
+      border-color: #1F3A5F;
+      background: #F0F4FF;
+    }
+
+    .account-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #405DE6, #833AB4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      font-size: 18px;
+    }
+
+    .account-info {
+      flex: 1;
+    }
+
+    .account-username {
+      font-weight: 600;
+      color: #1F3A5F;
+      font-size: 15px;
+    }
+
+    .account-db {
+      font-size: 12px;
+      color: #6B7280;
+      margin-top: 2px;
+    }
+
+    .account-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #1F3A5F;
+      color: white;
+      margin-left: 8px;
+    }
+
+    .account-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .account-actions button {
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .btn-edit {
+      background: #E5E7EB;
+      color: #374151;
+    }
+
+    .btn-edit:hover {
+      background: #D1D5DB;
+    }
+
+    .btn-delete {
+      background: #FEE2E2;
+      color: #DC2626;
+    }
+
+    .btn-delete:hover {
+      background: #FECACA;
+    }
+
+    .empty-accounts {
+      text-align: center;
+      padding: 24px;
+      color: #9CA3AF;
+    }
+
+    /* 계정 추가 모달 */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-header {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .modal-actions button {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
@@ -472,6 +613,27 @@
   </header>
 
   <main class="container">
+    <!-- 계정 관리 -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background: #E0F2FE;">👥</div>
+        <div>
+          <h2 class="card-title">계정 관리</h2>
+          <p class="card-desc">여러 Threads 계정을 등록하고 관리하세요</p>
+        </div>
+      </div>
+
+      <div id="accountsList" class="accounts-list">
+        <!-- 계정 목록이 여기에 렌더링됨 -->
+      </div>
+
+      <button class="btn btn-primary" id="addAccountBtn" style="margin-top: 16px;">
+        ➕ 계정 추가
+      </button>
+
+      <div class="status-message" id="accountsStatus"></div>
+    </section>
+
     <!-- Threads Token -->
     <section class="card">
       <div class="card-header">
@@ -505,13 +667,31 @@
         </div>
       </div>
 
-      <!-- Notion OAuth 로그인 버튼 -->
+      <!-- Notion 연결 방식 선택 -->
       <div id="notionOauthSection">
-        <button class="btn btn-primary" id="notionLoginBtn" style="width: 100%; padding: 14px; font-size: 16px; background: #000;">
-          📝 Notion으로 연결
+        <!-- 수동 입력 방식 -->
+        <div class="form-group">
+          <label class="form-label">Integration Secret 직접 입력</label>
+          <div class="input-with-icon">
+            <input type="password" class="form-input" id="notionSecretInput" placeholder="secret_xxx...">
+            <button type="button" class="toggle-visibility" id="toggleSecretVisibility">👁️</button>
+          </div>
+          <p class="form-hint">Notion Integration Secret (GitHub Actions에 넣은 것과 동일)</p>
+        </div>
+        <button class="btn btn-primary" id="saveNotionSecretBtn" style="width: 100%;">
+          🔗 Secret 저장
+        </button>
+
+        <div style="margin: 20px 0; text-align: center; color: #9CA3AF; font-size: 13px;">
+          ─────── 또는 ───────
+        </div>
+
+        <!-- OAuth 방식 -->
+        <button class="btn btn-secondary" id="notionLoginBtn" style="width: 100%; padding: 14px; font-size: 14px;">
+          📝 Notion OAuth로 연결 (고급)
         </button>
         <p class="form-hint" style="text-align: center; margin-top: 8px;">
-          버튼을 클릭하면 Notion 로그인 페이지로 이동합니다
+          OAuth 사용 시 redirect_uri 설정 필요
         </p>
       </div>
 
@@ -641,11 +821,35 @@
             <option value="">필드 선택...</option>
           </select>
         </div>
+
+        <!-- Thread ID 필드 매핑 (API 호출용) -->
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E7EB;">
+          <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">🔑 Thread ID 필드 (Text 타입 - API 호출용)</p>
+        </div>
+
+        <div class="mapping-row">
+          <div class="mapping-source">Thread ID</div>
+          <span class="mapping-arrow">→</span>
+          <select class="form-select" id="mappingThreadId">
+            <option value="">필드 선택...</option>
+          </select>
+        </div>
       </div>
 
       <button class="btn btn-secondary" id="loadFieldsBtn" style="margin-top: 16px;">
         필드 불러오기
       </button>
+
+      <!-- Thread ID 마이그레이션 -->
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
+        <p style="font-size: 13px; color: #6B7280; margin-bottom: 12px;">
+          🔄 기존 Notion 페이지에 Thread ID가 없는 경우, 아래 버튼으로 일괄 추가할 수 있습니다.
+        </p>
+        <button class="btn btn-secondary" id="migrateThreadIdsBtn">
+          기존 데이터에 Thread ID 추가
+        </button>
+        <div class="status-message" id="migrateStatus"></div>
+      </div>
     </section>
 
     <!-- Sync Options -->
@@ -711,6 +915,47 @@
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
     <p class="loading-text">노션에 동기화 중입니다...</p>
+  </div>
+
+  <!-- 계정 추가/수정 모달 -->
+  <div class="modal-overlay" id="accountModal">
+    <div class="modal-content">
+      <div class="modal-header" id="modalTitle">계정 추가</div>
+
+      <div class="form-group">
+        <label class="form-label">계정 이름</label>
+        <input type="text" class="form-input" id="accountName" placeholder="예: 메인 계정, 부계정">
+        <p class="form-hint">대시보드에서 구분할 이름</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Threads Username</label>
+        <input type="text" class="form-input" id="accountUsername" placeholder="예: @username">
+        <p class="form-hint">Threads 프로필 username</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notion Database ID</label>
+        <input type="text" class="form-input" id="accountNotionDbId" placeholder="32자리 ID">
+        <p class="form-hint">Notion DB URL에서 복사 (notion.so/.../[ID]?v=...)</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Threads Access Token</label>
+        <div class="input-with-icon">
+          <input type="password" class="form-input" id="accountThreadsToken" placeholder="THQWk...">
+          <button type="button" class="toggle-visibility" id="toggleAccountTokenVisibility">👁️</button>
+        </div>
+        <p class="form-hint">이 계정의 Threads API 액세스 토큰</p>
+      </div>
+
+      <input type="hidden" id="accountEditId">
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modalCancelBtn">취소</button>
+        <button class="btn btn-primary" id="modalSaveBtn">저장</button>
+      </div>
+    </div>
   </div>
 
   <script src="options.js"></script>

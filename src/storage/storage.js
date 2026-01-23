@@ -308,16 +308,23 @@ export async function clearLastSyncTime() {
 
 /**
  * 필수 설정이 완료되었는지 확인
+ * 멀티 계정 지원: notionSecret + accounts 배열 체크
  * @returns {Promise<boolean>}
  */
 export async function isConfigured() {
-  const [threadsToken, notionSecret, notionDbId] = await Promise.all([
-    getThreadsToken(),
+  const [notionSecret, accounts, notionDbId] = await Promise.all([
     getNotionSecret(),
+    getAccounts(),
     getNotionDatabaseId()
   ]);
 
-  return !!(threadsToken && notionSecret && notionDbId);
+  // 새 구조: notionSecret + accounts 배열에 DB ID가 있는 계정이 1개 이상
+  const hasValidAccount = accounts.length > 0 && accounts.some(a => a.notionDbId);
+
+  // 기존 구조 (하위 호환): notionSecret + notionDatabaseId
+  const hasLegacyConfig = !!(notionSecret && notionDbId);
+
+  return !!(notionSecret && (hasValidAccount || hasLegacyConfig));
 }
 
 /**
@@ -670,10 +677,16 @@ export async function removeAccount(accountId) {
 
 /**
  * 현재 선택된 계정 ID 조회
+ * 저장된 ID가 없으면 첫 번째 계정 ID 반환 (버그 수정)
  * @returns {Promise<string|null>}
  */
 export async function getCurrentAccountId() {
-  return await get(STORAGE_KEYS.CURRENT_ACCOUNT) || 'primary';
+  const stored = await get(STORAGE_KEYS.CURRENT_ACCOUNT);
+  if (stored) return stored;
+
+  // 저장된 ID 없으면 첫 번째 계정 ID 반환
+  const accounts = await getAccounts();
+  return accounts[0]?.id || null;
 }
 
 /**

@@ -42,13 +42,22 @@ async function init() {
 async function loadAccountTabs() {
   try {
     const accounts = await chrome.runtime.sendMessage({ type: 'GET_ACCOUNTS' });
-    currentAccountId = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_ACCOUNT_ID' });
+    let fetchedAccountId = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_ACCOUNT_ID' });
 
+    // 계정 ID가 없거나 유효하지 않으면 첫 번째 계정 선택 (버그 수정)
+    if (!fetchedAccountId || !accounts.find(a => a.id === fetchedAccountId)) {
+      fetchedAccountId = accounts[0]?.id || null;
+      if (fetchedAccountId) {
+        await chrome.runtime.sendMessage({ type: 'SET_CURRENT_ACCOUNT', accountId: fetchedAccountId });
+      }
+    }
+
+    currentAccountId = fetchedAccountId;
     renderAccountTabs(accounts, currentAccountId);
   } catch (error) {
     console.warn('Failed to load accounts, using default:', error);
-    // 계정이 없으면 기본 계정 표시
-    renderAccountTabs([], 'primary');
+    // 계정이 없으면 탭 숨김
+    renderAccountTabs([], null);
   }
 }
 
@@ -75,7 +84,9 @@ function renderAccountTabs(accounts, activeAccountId) {
       btn.classList.add('active');
     }
     btn.dataset.account = account.id;
-    btn.textContent = `@${account.username || account.name}`;
+    // username이 이미 @로 시작하면 그대로 사용
+    const displayName = account.username || account.name || 'Account';
+    btn.textContent = displayName.startsWith('@') ? displayName : `@${displayName}`;
 
     // 계정 탭 클릭 이벤트
     btn.addEventListener('click', async () => {
@@ -188,32 +199,22 @@ function setupEventListeners() {
 }
 
 /**
- * 통계 새로고침 후 데이터 다시 로드 (팝업과 동일한 로직)
+ * Notion에서 최신 데이터 다시 로드 (Threads API 호출 안 함)
+ * 인사이트 업데이트는 GitHub Actions가 1시간마다 처리
  */
 async function refreshAndReload() {
-  console.log('refreshAndReload called');
+  console.log('refreshAndReload called for account:', currentAccountId);
   const refreshBtn = document.getElementById('refreshBtn');
-  refreshBtn.textContent = '새로고침 중...';
+  refreshBtn.textContent = 'Notion에서 불러오는 중...';
   refreshBtn.disabled = true;
 
   try {
-    // 14일 이내 인사이트 새로고침 + 새 글 동기화
-    console.log('Sending SYNC_NOW...');
-    const result = await chrome.runtime.sendMessage({ type: 'SYNC_NOW' });
-    console.log('SYNC_NOW result:', result);
-
-    // 결과 표시
-    if (result.success) {
-      const parts = [];
-      if (result.refreshedCount > 0) parts.push(`${result.refreshedCount}개 새로고침`);
-      if (result.syncedCount > 0) parts.push(`${result.syncedCount}개 동기화`);
-      refreshBtn.textContent = parts.length > 0 ? `✓ ${parts.join(', ')}` : '✓ 최신 상태';
-    }
-
-    // 데이터 다시 로드
-    await loadDashboardData();
+    // Notion에서 최신 데이터만 다시 로드 (forceRefresh로 캐시 무시)
+    await loadDashboardData(true);
+    refreshBtn.textContent = '✓ 새로고침 완료';
   } catch (error) {
     console.error('Refresh failed:', error);
+    refreshBtn.textContent = '오류 발생';
   } finally {
     // 2초 후 버튼 텍스트 복원
     setTimeout(() => {
@@ -224,21 +225,24 @@ async function refreshAndReload() {
 }
 
 /**
- * 대시보드 데이터 로드 (새 데이터)
+ * 대시보드 데이터 로드
+ * @param {boolean} forceRefresh - true면 Notion API 강제 호출 (캐시 무시)
  */
-async function loadDashboardData() {
+async function loadDashboardData(forceRefresh = false) {
   try {
-    // 먼저 오늘 팔로워 기록 (아직 없으면 기록됨)
-    await chrome.runtime.sendMessage({ type: 'RECORD_FOLLOWERS_NOW' });
+    // 먼저 오늘 팔로워 기록 (아직 없으면 기록됨, 계정별)
+    await chrome.runtime.sendMessage({ type: 'RECORD_FOLLOWERS_NOW', accountId: currentAccountId });
 
     // 통합 API 사용 - API 호출 최적화
-    const [userInfo, allInsights, history, mappings, followersHistory, followersStats] = await Promise.all([
+    // 계정별 캐시 우선 사용 (forceRefresh면 Notion API 호출)
+    const [userInfo, allInsights, history, mappings, followersHistory, followersStats, currentAccount] = await Promise.all([
       chrome.runtime.sendMessage({ type: 'TEST_CONNECTIONS' }),
       chrome.runtime.sendMessage({ type: 'GET_ALL_INSIGHTS' }),
       chrome.runtime.sendMessage({ type: 'GET_SYNC_HISTORY', limit: 100 }),
-      chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS' }),
-      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_HISTORY', limit: 90 }),
-      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_CHANGE_STATS' })
+      chrome.runtime.sendMessage({ type: 'GET_THREAD_MAPPINGS', accountId: currentAccountId, forceRefresh }),
+      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_HISTORY', accountId: currentAccountId, limit: 90 }),
+      chrome.runtime.sendMessage({ type: 'GET_FOLLOWERS_CHANGE_STATS', accountId: currentAccountId }),
+      chrome.runtime.sendMessage({ type: 'GET_CURRENT_ACCOUNT' })
     ]);
 
     // 데이터 객체 구성
@@ -248,7 +252,8 @@ async function loadDashboardData() {
       history,
       mappings,
       followersHistory,
-      followersStats
+      followersStats,
+      currentAccount
     };
 
     // 캐시에 저장
@@ -274,24 +279,55 @@ async function loadDashboardData() {
  * 대시보드 데이터를 UI에 적용
  */
 function applyDashboardData(data) {
-  const { userInfo, allInsights, history, mappings, followersHistory, followersStats } = data;
+  const { userInfo, allInsights, history, mappings, followersHistory, followersStats, currentAccount } = data;
 
-  // 현재 선택된 기간에 따라 인사이트 선택
-  const periodMap = { 7: 'week', 30: 'month', 90: 'total' };
-  const insights = allInsights?.[periodMap[currentPeriod]] || allInsights?.week || {};
-  const totalInsights = allInsights?.total || {};
+  // mappings 데이터에서 인사이트 계산 (계정별)
+  const mappingsArray = Array.isArray(mappings) ? mappings : [];
+
+  // 디버그 로그
+  console.log('[Dashboard UI] mappings received:', mappingsArray.length);
+  if (mappingsArray.length > 0) {
+    const sampleInsights = mappingsArray[0]?.insights;
+    console.log('[Dashboard UI] Sample mapping insights:', sampleInsights);
+    const totalViews = mappingsArray.reduce((sum, m) => sum + (m.insights?.views || 0), 0);
+    console.log('[Dashboard UI] Total views from mappings:', totalViews);
+  }
+
+  let insights, totalInsights;
+
+  if (mappingsArray.length > 0) {
+    // mappings 기반 인사이트 계산 (계정별 데이터)
+    insights = calculateInsightsFromMappings(mappingsArray, currentPeriod);
+    totalInsights = calculateInsightsFromMappings(mappingsArray, 9999);
+    console.log('[Dashboard UI] Calculated insights:', insights);
+    console.log('[Dashboard UI] Calculated totalInsights:', totalInsights);
+  } else {
+    // 데이터가 없으면 0으로 표시 (다른 계정 데이터 사용 안 함)
+    insights = { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0, shares: 0, postCount: 0 };
+    totalInsights = { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0, shares: 0, postCount: 0 };
+    console.log('[Dashboard UI] No mappings, showing zeros');
+  }
 
   // 사용자 이름 및 게시글 수 표시
-  if (userInfo?.threads?.user?.username) {
-    const postCountText = insights.postCount ? ` (${insights.postCount}개 게시글 기준)` : '';
-    document.getElementById('usernameSubtitle').textContent =
-      `@${userInfo.threads.user.username}의 계정 인사이트${postCountText}`;
+  const postCountText = insights.postCount ? ` (${insights.postCount}개 게시글 기준)` : '';
+  const usernameEl = document.getElementById('usernameSubtitle');
+  if (usernameEl) {
+    // 현재 선택된 계정의 username 사용 (계정별 표시)
+    const displayUsername = currentAccount?.username || userInfo?.threads?.user?.username;
+    if (displayUsername) {
+      const formattedUsername = displayUsername.startsWith('@') ? displayUsername : `@${displayUsername}`;
+      usernameEl.textContent = `${formattedUsername}의 계정 인사이트${postCountText}`;
+    } else {
+      usernameEl.textContent = `계정 인사이트${postCountText}`;
+    }
   }
 
   updateStatsCards(insights);
   updateCharts(mappings || []);
-  updateRatioStats(totalInsights);
-  updateFollowersHistory(followersHistory || [], followersStats || {}, allInsights?.followers_count || 0);
+
+  // 팔로워는 Threads API에서 가져옴 (계정별 토큰 사용)
+  updateRatioStats(totalInsights, followersStats);
+  updateFollowersHistory(followersHistory || [], followersStats || {}, followersStats?.current || 0);
   updateBestTimeAnalysis(mappings || []);
   updateHistoryTable(history || [], mappings || []);
 }
@@ -351,6 +387,7 @@ function updateDailyChart(mappings) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       plugins: {
         legend: {
           display: false
@@ -373,9 +410,10 @@ function updateDailyChart(mappings) {
 /**
  * 전체 조회수 대비 팔로워 전환율 표시
  */
-function updateRatioStats(totalInsights) {
+function updateRatioStats(totalInsights, followersStats) {
   const views = totalInsights.views || 0;
-  const followers = totalInsights.followers_count || 0;
+  // 팔로워 수: followersStats에서 가져옴 (동기화 시 저장된 값)
+  const followers = followersStats?.current || 0;
 
   // 전환율 계산 (팔로워 / 조회수 * 100)
   const conversionRate = views > 0 ? ((followers / views) * 100).toFixed(2) : 0;
@@ -397,6 +435,9 @@ function updateFollowersHistory(history, stats, currentFollowers) {
   updateChangeValue('todayChange', stats?.today?.change || 0);
   updateChangeValue('weekChange', stats?.week?.change || 0);
   updateChangeValue('monthChange', stats?.month?.change || 0);
+  updateChangeValue('quarterChange', stats?.quarter?.change || 0);
+  updateChangeValue('halfYearChange', stats?.halfYear?.change || 0);
+  updateChangeValue('yearChange', stats?.year?.change || 0);
 
   // 히스토리 데이터 캐시 및 달력 렌더링
   followersHistoryData = history || [];
@@ -521,6 +562,49 @@ function renderFollowersCalendar(history) {
 
     grid.appendChild(cell);
   }
+}
+
+/**
+ * mappings 데이터에서 인사이트 계산 (계정별)
+ * @param {Array} mappings - 스레드 매핑 배열
+ * @param {number} days - 기간 (7, 30, 90 등)
+ * @returns {Object} - 집계된 인사이트
+ */
+function calculateInsightsFromMappings(mappings, days) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  // 기간별 필터링 (9999일이면 전체)
+  const filteredMappings = days >= 9999
+    ? mappings
+    : mappings.filter(m => {
+        if (!m.postCreatedAt) return true;
+        return new Date(m.postCreatedAt) >= cutoffDate;
+      });
+
+  // 집계
+  const aggregated = {
+    views: 0,
+    likes: 0,
+    replies: 0,
+    reposts: 0,
+    quotes: 0,
+    shares: 0,
+    postCount: filteredMappings.length
+  };
+
+  for (const mapping of filteredMappings) {
+    if (mapping.insights) {
+      aggregated.views += mapping.insights.views || 0;
+      aggregated.likes += mapping.insights.likes || 0;
+      aggregated.replies += mapping.insights.replies || 0;
+      aggregated.reposts += mapping.insights.reposts || 0;
+      aggregated.quotes += mapping.insights.quotes || 0;
+      aggregated.shares += mapping.insights.shares || 0;
+    }
+  }
+
+  return aggregated;
 }
 
 /**

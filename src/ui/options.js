@@ -28,11 +28,44 @@ function createConnectedUI(service, subText) {
   sub.style.cssText = 'font-size: 12px; color: #047857; margin-top: 4px;';
   sub.textContent = service === 'threads' ? `User ID: ${subText || 'N/A'}` : (subText || 'Workspace');
 
+  // 연결 해제 버튼 추가
+  const disconnectBtn = document.createElement('button');
+  disconnectBtn.style.cssText = 'margin-top: 12px; padding: 8px 16px; background: #FEE2E2; color: #991B1B; border: none; border-radius: 6px; font-size: 12px; cursor: pointer;';
+  disconnectBtn.textContent = '연결 해제';
+  disconnectBtn.addEventListener('click', () => disconnectService(service));
+
   container.appendChild(icon);
   container.appendChild(title);
   container.appendChild(sub);
+  container.appendChild(disconnectBtn);
 
   return container;
+}
+
+/**
+ * 서비스 연결 해제
+ */
+async function disconnectService(service) {
+  if (!confirm(`${service === 'threads' ? 'Threads' : 'Notion'} 연결을 해제하시겠습니까?`)) {
+    return;
+  }
+
+  if (service === 'threads') {
+    await chrome.storage.local.remove(['threadsAccessToken', 'threadsUserId', 'threadsTokenExpiresAt']);
+    const oauthSection = document.getElementById('oauthSection');
+    if (oauthSection) {
+      oauthSection.replaceChildren(createLoginButtonUI('threads', startThreadsOAuthFlow));
+    }
+    showStatus('threadsStatus', 'Threads 연결이 해제되었습니다', 'info');
+  } else {
+    await chrome.storage.local.remove(['notionSecret', 'notionWorkspaceId', 'notionWorkspaceName']);
+    const notionOauthSection = document.getElementById('notionOauthSection');
+    if (notionOauthSection) {
+      notionOauthSection.replaceChildren(createLoginButtonUI('notion', startNotionOAuthFlow));
+    }
+    elements.loadDbListBtn.disabled = true;
+    showStatus('notionStatus', 'Notion 연결이 해제되었습니다', 'info');
+  }
 }
 
 /**
@@ -109,6 +142,11 @@ const elements = {
   mappingShares: document.getElementById('mappingShares'),
   // 작성자 필드 매핑
   mappingUsername: document.getElementById('mappingUsername'),
+  // Thread ID 필드 매핑 (API 호출용)
+  mappingThreadId: document.getElementById('mappingThreadId'),
+  // Thread ID 마이그레이션
+  migrateThreadIdsBtn: document.getElementById('migrateThreadIdsBtn'),
+  migrateStatus: document.getElementById('migrateStatus'),
   // 과거 게시글 동기화
   syncAllToggle: document.getElementById('syncAllToggle'),
   syncDateGroup: document.getElementById('syncDateGroup'),
@@ -119,6 +157,24 @@ const elements = {
   resetBtn: document.getElementById('resetBtn'),
   saveStatus: document.getElementById('saveStatus'),
   loadingOverlay: document.getElementById('loadingOverlay'),
+  // 계정 관리
+  accountsList: document.getElementById('accountsList'),
+  addAccountBtn: document.getElementById('addAccountBtn'),
+  accountsStatus: document.getElementById('accountsStatus'),
+  accountModal: document.getElementById('accountModal'),
+  modalTitle: document.getElementById('modalTitle'),
+  accountName: document.getElementById('accountName'),
+  accountUsername: document.getElementById('accountUsername'),
+  accountNotionDbId: document.getElementById('accountNotionDbId'),
+  accountEditId: document.getElementById('accountEditId'),
+  accountThreadsToken: document.getElementById('accountThreadsToken'),
+  toggleAccountTokenVisibility: document.getElementById('toggleAccountTokenVisibility'),
+  modalCancelBtn: document.getElementById('modalCancelBtn'),
+  modalSaveBtn: document.getElementById('modalSaveBtn'),
+  // Notion Secret 수동 입력
+  notionSecretInput: document.getElementById('notionSecretInput'),
+  saveNotionSecretBtn: document.getElementById('saveNotionSecretBtn'),
+  toggleSecretVisibility: document.getElementById('toggleSecretVisibility'),
 };
 
 // 현재 설정
@@ -128,6 +184,7 @@ let currentSettings = {};
  * 초기화
  */
 async function init() {
+  await loadAccounts();
   await loadSettings();
   setupEventListeners();
 }
@@ -241,6 +298,42 @@ function setupEventListeners() {
     }
   });
 
+  // 계정 관리
+  if (elements.addAccountBtn) {
+    elements.addAccountBtn.addEventListener('click', () => showAccountModal());
+  }
+  if (elements.modalCancelBtn) {
+    elements.modalCancelBtn.addEventListener('click', hideAccountModal);
+  }
+  if (elements.modalSaveBtn) {
+    elements.modalSaveBtn.addEventListener('click', saveAccountFromModal);
+  }
+  // 모달 외부 클릭 시 닫기
+  if (elements.accountModal) {
+    elements.accountModal.addEventListener('click', (e) => {
+      if (e.target === elements.accountModal) {
+        hideAccountModal();
+      }
+    });
+  }
+
+  // Notion Secret 수동 입력
+  if (elements.saveNotionSecretBtn) {
+    elements.saveNotionSecretBtn.addEventListener('click', saveNotionSecretManually);
+  }
+  if (elements.toggleSecretVisibility) {
+    elements.toggleSecretVisibility.addEventListener('click', toggleSecretInputVisibility);
+  }
+
+  // 계정 모달 토큰 가시성 토글
+  if (elements.toggleAccountTokenVisibility) {
+    elements.toggleAccountTokenVisibility.addEventListener('click', toggleAccountTokenVisibility);
+  }
+
+  // Thread ID 마이그레이션 버튼
+  if (elements.migrateThreadIdsBtn) {
+    elements.migrateThreadIdsBtn.addEventListener('click', migrateThreadIds);
+  }
 }
 
 /**
@@ -600,7 +693,9 @@ function updateFieldOptions(properties) {
     elements.mappingQuotes,
     elements.mappingShares,
     // 작성자 필드
-    elements.mappingUsername
+    elements.mappingUsername,
+    // Thread ID 필드
+    elements.mappingThreadId
   ];
 
   // 필드 타입별로 분류
@@ -646,7 +741,8 @@ function autoMatchFields(fields) {
     mappingReposts: ['리포스트', 'reposts'],
     mappingQuotes: ['인용', 'quotes'],
     mappingShares: ['공유', 'shares'],
-    mappingUsername: ['작성자', 'username', 'author']
+    mappingUsername: ['작성자', 'username', 'author'],
+    mappingThreadId: ['thread id', 'threadid', '스레드 id', '스레드id', 'post id', 'postid']
   };
 
   for (const [selectId, keywords] of Object.entries(matchRules)) {
@@ -680,6 +776,8 @@ function setFieldMappings(mapping) {
   if (mapping.shares) elements.mappingShares.value = mapping.shares;
   // 작성자 필드
   if (mapping.username) elements.mappingUsername.value = mapping.username;
+  // Thread ID 필드
+  if (mapping.threadId) elements.mappingThreadId.value = mapping.threadId;
 }
 
 /**
@@ -710,7 +808,9 @@ async function saveSettings() {
         quotes: elements.mappingQuotes.value,
         shares: elements.mappingShares.value,
         // 작성자 필드
-        username: elements.mappingUsername.value
+        username: elements.mappingUsername.value,
+        // Thread ID 필드
+        threadId: elements.mappingThreadId.value
       },
       syncOptions: {
         autoSync: true,
@@ -800,7 +900,7 @@ async function resetSettings() {
     [elements.mappingTitle, elements.mappingContent, elements.mappingCreatedAt,
       elements.mappingSourceUrl, elements.mappingViews, elements.mappingLikes,
       elements.mappingReplies, elements.mappingReposts, elements.mappingQuotes,
-      elements.mappingUsername
+      elements.mappingShares, elements.mappingUsername, elements.mappingThreadId
     ].forEach(select => {
       select.selectedIndex = 0;
     });
@@ -840,6 +940,380 @@ function hideStatus(elementId) {
  */
 function showLoading(show) {
   elements.loadingOverlay.className = show ? 'loading-overlay show' : 'loading-overlay';
+}
+
+// === Notion Secret 수동 입력 ===
+
+/**
+ * Notion Secret 수동 저장
+ */
+async function saveNotionSecretManually() {
+  // 공백, 줄바꿈, 보이지 않는 문자 제거
+  const secret = elements.notionSecretInput.value
+    .trim()
+    .replace(/[\s\u200B-\u200D\uFEFF]/g, ''); // 공백 및 zero-width 문자 제거
+
+  if (!secret) {
+    showStatus('notionStatus', 'Secret을 입력해주세요', 'error');
+    return;
+  }
+
+  // Notion secret은 secret_ 또는 ntn_ 등 다양한 형식 가능
+  if (secret.length < 20) {
+    showStatus('notionStatus', 'Secret이 너무 짧습니다', 'error');
+    return;
+  }
+
+  // ASCII 문자만 포함되어 있는지 확인
+  if (!/^[\x00-\x7F]*$/.test(secret)) {
+    showStatus('notionStatus', 'Secret에 유효하지 않은 문자가 포함되어 있습니다', 'error');
+    return;
+  }
+
+  elements.saveNotionSecretBtn.disabled = true;
+  showStatus('notionStatus', '연결 확인 중...', 'info');
+
+  try {
+    // Secret 유효성 검증 (Notion API 호출 테스트)
+    const response = await fetch('https://api.notion.com/v1/users/me', {
+      headers: {
+        'Authorization': `Bearer ${secret}`,
+        'Notion-Version': '2022-06-28'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('유효하지 않은 Secret입니다');
+    }
+
+    const userData = await response.json();
+
+    // Secret 저장
+    await chrome.storage.local.set({
+      notionSecret: secret,
+      notionWorkspaceName: userData.name || 'Workspace'
+    });
+
+    // UI 업데이트
+    showStatus('notionStatus', `✅ Notion 연결 성공! (${userData.name || 'Workspace'})`, 'success');
+
+    // 연결됨 상태로 UI 변경
+    const notionOauthSection = document.getElementById('notionOauthSection');
+    if (notionOauthSection) {
+      notionOauthSection.replaceChildren(createConnectedUI('notion', userData.name || 'Workspace'));
+    }
+
+    elements.loadDbListBtn.disabled = false;
+
+  } catch (error) {
+    console.error('Notion secret validation error:', error);
+    showStatus('notionStatus', `❌ ${error.message}`, 'error');
+  } finally {
+    elements.saveNotionSecretBtn.disabled = false;
+  }
+}
+
+/**
+ * Secret 입력 필드 가시성 토글
+ */
+function toggleSecretInputVisibility() {
+  const input = elements.notionSecretInput;
+  const btn = elements.toggleSecretVisibility;
+
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁️';
+  }
+}
+
+/**
+ * 계정 모달 토큰 입력 필드 가시성 토글
+ */
+function toggleAccountTokenVisibility() {
+  const input = elements.accountThreadsToken;
+  const btn = elements.toggleAccountTokenVisibility;
+
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁️';
+  }
+}
+
+// === 계정 관리 기능 ===
+
+/**
+ * 계정 목록 로드 및 렌더링
+ */
+async function loadAccounts() {
+  try {
+    const result = await chrome.storage.local.get(['accounts', 'currentAccount']);
+    const accounts = result.accounts || [];
+    const currentAccountId = result.currentAccount || 'primary';
+
+    renderAccountsList(accounts, currentAccountId);
+  } catch (error) {
+    console.error('Failed to load accounts:', error);
+  }
+}
+
+/**
+ * 계정 목록 렌더링 (XSS-safe)
+ */
+function renderAccountsList(accounts, currentAccountId) {
+  const container = elements.accountsList;
+  if (!container) return;
+
+  // 안전하게 기존 내용 제거
+  container.replaceChildren();
+
+  if (accounts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-accounts';
+    empty.textContent = '등록된 계정이 없습니다. 계정을 추가해주세요.';
+    container.appendChild(empty);
+    return;
+  }
+
+  accounts.forEach(account => {
+    const item = document.createElement('div');
+    item.className = 'account-item' + (account.id === currentAccountId ? ' active' : '');
+
+    // 아바타
+    const avatar = document.createElement('div');
+    avatar.className = 'account-avatar';
+    avatar.textContent = (account.username || account.name || '?').charAt(0).toUpperCase();
+
+    // 정보
+    const info = document.createElement('div');
+    info.className = 'account-info';
+
+    const usernameRow = document.createElement('div');
+    usernameRow.className = 'account-username';
+    usernameRow.textContent = account.username || account.name || '이름 없음';
+
+    if (account.id === currentAccountId) {
+      const badge = document.createElement('span');
+      badge.className = 'account-badge';
+      badge.textContent = '현재';
+      usernameRow.appendChild(badge);
+    }
+
+    const dbInfo = document.createElement('div');
+    dbInfo.className = 'account-db';
+    const dbStatus = account.notionDbId ? `DB: ${account.notionDbId.substring(0, 8)}...` : 'Notion DB 미설정';
+    const tokenStatus = account.threadsToken ? '✅ Token' : '❌ Token 미설정';
+    dbInfo.textContent = `${dbStatus} | ${tokenStatus}`;
+
+    info.appendChild(usernameRow);
+    info.appendChild(dbInfo);
+
+    // 액션 버튼
+    const actions = document.createElement('div');
+    actions.className = 'account-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-edit';
+    editBtn.textContent = '수정';
+    editBtn.addEventListener('click', () => showAccountModal(account));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-delete';
+    deleteBtn.textContent = '삭제';
+    deleteBtn.addEventListener('click', () => deleteAccount(account.id));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    item.appendChild(avatar);
+    item.appendChild(info);
+    item.appendChild(actions);
+    container.appendChild(item);
+  });
+}
+
+/**
+ * 계정 모달 표시
+ */
+function showAccountModal(account = null) {
+  if (!elements.accountModal) return;
+
+  // 모달 제목 설정
+  elements.modalTitle.textContent = account ? '계정 수정' : '계정 추가';
+
+  // 폼 초기화
+  elements.accountName.value = account?.name || '';
+  elements.accountUsername.value = account?.username || '';
+  elements.accountNotionDbId.value = account?.notionDbId || '';
+  elements.accountThreadsToken.value = account?.threadsToken || '';
+  elements.accountEditId.value = account?.id || '';
+
+  // 모달 표시
+  elements.accountModal.classList.add('show');
+}
+
+/**
+ * 계정 모달 숨기기
+ */
+function hideAccountModal() {
+  if (!elements.accountModal) return;
+  elements.accountModal.classList.remove('show');
+}
+
+/**
+ * 모달에서 계정 저장
+ */
+async function saveAccountFromModal() {
+  const name = elements.accountName.value.trim();
+  const username = elements.accountUsername.value.trim();
+  const notionDbId = elements.accountNotionDbId.value.trim().replace(/-/g, ''); // 하이픈 제거
+  const threadsToken = elements.accountThreadsToken.value.trim();
+  const editId = elements.accountEditId.value;
+
+  // 유효성 검사
+  if (!name) {
+    showStatus('accountsStatus', '계정 이름을 입력해주세요', 'error');
+    return;
+  }
+
+  if (!username) {
+    showStatus('accountsStatus', 'Threads username을 입력해주세요', 'error');
+    return;
+  }
+
+  if (!notionDbId || notionDbId.length !== 32) {
+    showStatus('accountsStatus', 'Notion Database ID를 확인해주세요 (32자리)', 'error');
+    return;
+  }
+
+  try {
+    const result = await chrome.storage.local.get(['accounts']);
+    const accounts = result.accounts || [];
+
+    // 기존 계정 정보 (수정 시)
+    const existingAccount = editId ? accounts.find(a => a.id === editId) : null;
+
+    const account = {
+      id: editId || `account_${Date.now()}`,
+      name,
+      username: username.startsWith('@') ? username : `@${username}`,
+      notionDbId,
+      threadsToken: threadsToken || existingAccount?.threadsToken || '',
+      createdAt: existingAccount?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (editId) {
+      // 수정
+      const index = accounts.findIndex(a => a.id === editId);
+      if (index >= 0) {
+        accounts[index] = account;
+      }
+    } else {
+      // 추가
+      accounts.push(account);
+    }
+
+    await chrome.storage.local.set({ accounts });
+
+    // 첫 번째 계정이면 현재 계정으로 설정
+    if (accounts.length === 1) {
+      await chrome.storage.local.set({ currentAccount: account.id });
+    }
+
+    hideAccountModal();
+    await loadAccounts();
+    showStatus('accountsStatus', editId ? '계정이 수정되었습니다' : '계정이 추가되었습니다', 'success');
+  } catch (error) {
+    console.error('Failed to save account:', error);
+    showStatus('accountsStatus', '계정 저장에 실패했습니다', 'error');
+  }
+}
+
+/**
+ * 계정 삭제
+ */
+async function deleteAccount(accountId) {
+  if (!confirm('이 계정을 삭제하시겠습니까?')) {
+    return;
+  }
+
+  try {
+    const result = await chrome.storage.local.get(['accounts', 'currentAccount']);
+    const accounts = result.accounts || [];
+    const filtered = accounts.filter(a => a.id !== accountId);
+
+    await chrome.storage.local.set({ accounts: filtered });
+
+    // 삭제된 계정이 현재 계정이면 첫 번째 계정으로 변경
+    if (result.currentAccount === accountId && filtered.length > 0) {
+      await chrome.storage.local.set({ currentAccount: filtered[0].id });
+    }
+
+    await loadAccounts();
+    showStatus('accountsStatus', '계정이 삭제되었습니다', 'success');
+  } catch (error) {
+    console.error('Failed to delete account:', error);
+    showStatus('accountsStatus', '계정 삭제에 실패했습니다', 'error');
+  }
+}
+
+/**
+ * Thread ID 마이그레이션 실행
+ */
+async function migrateThreadIds() {
+  // 현재 계정 가져오기
+  const result = await chrome.storage.local.get(['accounts', 'currentAccount']);
+  const accounts = result.accounts || [];
+  const currentAccountId = result.currentAccount;
+
+  if (accounts.length === 0) {
+    showStatus('migrateStatus', '등록된 계정이 없습니다. 먼저 계정을 추가해주세요.', 'error');
+    return;
+  }
+
+  // 현재 계정 또는 첫 번째 계정 사용
+  const accountId = currentAccountId || accounts[0]?.id;
+
+  if (!accountId) {
+    showStatus('migrateStatus', '계정을 찾을 수 없습니다.', 'error');
+    return;
+  }
+
+  // Thread ID 필드 매핑 확인
+  if (!elements.mappingThreadId.value) {
+    showStatus('migrateStatus', 'Thread ID 필드를 먼저 매핑해주세요.', 'error');
+    return;
+  }
+
+  elements.migrateThreadIdsBtn.disabled = true;
+  showStatus('migrateStatus', '마이그레이션 중... (시간이 걸릴 수 있습니다)', 'info');
+
+  try {
+    // 먼저 설정 저장 (Thread ID 필드 매핑 포함)
+    await saveSettings();
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'MIGRATE_THREAD_IDS',
+      accountId: accountId
+    });
+
+    if (response.success) {
+      showStatus('migrateStatus', `✅ ${response.message}`, 'success');
+    } else {
+      showStatus('migrateStatus', `❌ ${response.error}`, 'error');
+    }
+  } catch (error) {
+    console.error('Migration error:', error);
+    showStatus('migrateStatus', `❌ 마이그레이션 실패: ${error.message}`, 'error');
+  } finally {
+    elements.migrateThreadIdsBtn.disabled = false;
+  }
 }
 
 // 초기화
