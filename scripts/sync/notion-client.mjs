@@ -9,6 +9,21 @@ const NOTION_VERSION = '2022-06-28';
 let lastRequestTime = 0;
 const REQUEST_DELAY = 350; // ~3 req/sec
 
+// 필드 타입별 자동 매핑 키워드
+const FIELD_KEYWORDS = {
+  title: ['title', 'name', '제목', '이름'],
+  content: ['content', 'text', 'body', '내용', '본문'],
+  createdAt: ['created', 'date', 'time', '작성일', '날짜', '생성'],
+  sourceUrl: ['url', 'link', 'source', '링크', '주소', '원본'],
+  views: ['view', 'read', '조회', '읽음'],
+  likes: ['like', 'heart', '좋아요', '하트'],
+  replies: ['repl', 'comment', '댓글', '답글'],
+  reposts: ['repost', 'share', '리포스트', '공유'],
+  quotes: ['quote', '인용'],
+  shares: ['share', '공유'],
+  username: ['user', 'author', 'name', '사용자', '작성자', '계정']
+};
+
 /**
  * Rate limit 대기
  */
@@ -51,6 +66,108 @@ async function notionRequest(endpoint, secret, options = {}) {
   }
 
   return response.json();
+}
+
+/**
+ * 데이터베이스 스키마 조회
+ * @param {string} secret
+ * @param {string} databaseId
+ * @returns {Promise<Object>}
+ */
+export async function getDatabaseSchema(secret, databaseId) {
+  return notionRequest(`/databases/${databaseId}`, secret, {
+    method: 'GET'
+  });
+}
+
+/**
+ * 데이터베이스 스키마에서 필드 매핑 자동 감지
+ * @param {string} secret
+ * @param {string} databaseId
+ * @returns {Promise<Object>}
+ */
+export async function autoDetectFieldMapping(secret, databaseId) {
+  const schema = await getDatabaseSchema(secret, databaseId);
+  const properties = schema.properties || {};
+
+  const mapping = {
+    title: null,
+    content: null,
+    createdAt: null,
+    sourceUrl: null,
+    views: null,
+    likes: null,
+    replies: null,
+    reposts: null,
+    quotes: null,
+    shares: null,
+    username: null
+  };
+
+  // 1단계: 타입 기반 매칭
+  for (const [propName, propConfig] of Object.entries(properties)) {
+    const propType = propConfig.type;
+    const nameLower = propName.toLowerCase();
+
+    // title 타입은 무조건 title 필드
+    if (propType === 'title' && !mapping.title) {
+      mapping.title = propName;
+      continue;
+    }
+
+    // url 타입 필드
+    if (propType === 'url' && !mapping.sourceUrl) {
+      mapping.sourceUrl = propName;
+      continue;
+    }
+
+    // date 타입 필드
+    if (propType === 'date' && !mapping.createdAt) {
+      // 'created', 'date', '작성' 등 키워드 포함 시 매핑
+      if (FIELD_KEYWORDS.createdAt.some(kw => nameLower.includes(kw))) {
+        mapping.createdAt = propName;
+        continue;
+      }
+    }
+
+    // number 타입 필드 (통계)
+    if (propType === 'number') {
+      for (const [field, keywords] of Object.entries(FIELD_KEYWORDS)) {
+        if (['views', 'likes', 'replies', 'reposts', 'quotes', 'shares'].includes(field)) {
+          if (!mapping[field] && keywords.some(kw => nameLower.includes(kw))) {
+            mapping[field] = propName;
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    // rich_text 타입 필드 (content, username)
+    if (propType === 'rich_text') {
+      if (!mapping.content && FIELD_KEYWORDS.content.some(kw => nameLower.includes(kw))) {
+        mapping.content = propName;
+        continue;
+      }
+      if (!mapping.username && FIELD_KEYWORDS.username.some(kw => nameLower.includes(kw))) {
+        mapping.username = propName;
+        continue;
+      }
+    }
+  }
+
+  // 2단계: date 필드가 아직 없으면 첫 번째 date 타입 사용
+  if (!mapping.createdAt) {
+    for (const [propName, propConfig] of Object.entries(properties)) {
+      if (propConfig.type === 'date') {
+        mapping.createdAt = propName;
+        break;
+      }
+    }
+  }
+
+  console.log('[AutoDetect] Field mapping:', JSON.stringify(mapping, null, 2));
+  return mapping;
 }
 
 /**
@@ -191,17 +308,11 @@ export async function createPage(secret, databaseId, thread, fieldMapping = {}, 
 export async function updatePageStats(secret, pageId, stats, fieldMapping = {}) {
   const properties = {};
 
-  const mapping = {
-    views: fieldMapping.views || 'Views',
-    likes: fieldMapping.likes || 'Likes',
-    replies: fieldMapping.replies || 'Replies',
-    reposts: fieldMapping.reposts || 'Reposts',
-    quotes: fieldMapping.quotes || 'Quotes',
-    shares: fieldMapping.shares || 'Shares'
-  };
-
-  Object.entries(mapping).forEach(([key, field]) => {
-    if (stats[key] !== undefined && field) {
+  // fieldMapping에서 null이 아닌 필드만 사용
+  const statFields = ['views', 'likes', 'replies', 'reposts', 'quotes', 'shares'];
+  statFields.forEach(key => {
+    const field = fieldMapping[key];
+    if (field && stats[key] !== undefined) {
       properties[field] = { number: stats[key] };
     }
   });
@@ -218,25 +329,13 @@ export async function updatePageStats(secret, pageId, stats, fieldMapping = {}) 
 
 /**
  * 프로퍼티 빌드
+ * fieldMapping에서 null인 필드는 건너뜀 (자동 감지 실패 시)
  */
 function buildProperties(thread, fieldMapping, insights) {
-  const fm = {
-    title: fieldMapping.title || 'Name',
-    content: fieldMapping.content || 'Content',
-    createdAt: fieldMapping.createdAt || 'Created',
-    sourceUrl: fieldMapping.sourceUrl || 'URL',
-    views: fieldMapping.views || 'Views',
-    likes: fieldMapping.likes || 'Likes',
-    replies: fieldMapping.replies || 'Replies',
-    reposts: fieldMapping.reposts || 'Reposts',
-    quotes: fieldMapping.quotes || 'Quotes',
-    shares: fieldMapping.shares || 'Shares',
-    username: fieldMapping.username || 'Username'
-  };
-
+  const fm = fieldMapping || {};
   const properties = {};
 
-  // 제목
+  // 제목 (title 필드는 필수)
   if (fm.title) {
     properties[fm.title] = {
       title: [{ text: { content: thread.title || thread.text?.slice(0, 100) || 'Untitled' } }]

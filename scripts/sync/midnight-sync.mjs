@@ -60,12 +60,16 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
       }
 
       try {
-        const existingPage = await notion.findPageBySourceUrl(
-          notionSecret,
-          account.notionDbId,
-          thread.url,
-          fieldMapping.sourceUrl || 'URL'
-        );
+        // URL 필드가 감지되지 않으면 중복 체크 건너뜀
+        let existingPage = null;
+        if (fieldMapping.sourceUrl) {
+          existingPage = await notion.findPageBySourceUrl(
+            notionSecret,
+            account.notionDbId,
+            thread.url,
+            fieldMapping.sourceUrl
+          );
+        }
 
         if (existingPage) {
           result.skippedCount++;
@@ -103,8 +107,8 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
       notionSecret,
       account.notionDbId,
       {
-        dateField: fieldMapping.createdAt || 'Created',
-        since: sinceDate,
+        dateField: fieldMapping.createdAt || null,  // null이면 필터/정렬 없이 조회
+        since: fieldMapping.createdAt ? sinceDate : null,
         limit: 100
       }
     );
@@ -112,7 +116,8 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
     console.log(`[Midnight] Found ${existingPages.length} pages to update`);
 
     for (const page of existingPages) {
-      const pageUrl = notion.extractUrlFromPage(page, fieldMapping.sourceUrl || 'URL');
+      if (!fieldMapping.sourceUrl) continue;  // URL 필드 없으면 건너뜀
+      const pageUrl = notion.extractUrlFromPage(page, fieldMapping.sourceUrl);
       if (!pageUrl) continue;
 
       // URL에서 thread ID 추출 (permalink format: https://www.threads.net/@username/post/...)

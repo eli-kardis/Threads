@@ -56,12 +56,16 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
 
       try {
         // Notion에서 중복 체크 (URL 기반)
-        const existingPage = await notion.findPageBySourceUrl(
-          notionSecret,
-          account.notionDbId,
-          thread.url,
-          fieldMapping.sourceUrl || 'URL'
-        );
+        // URL 필드가 감지되지 않으면 중복 체크 건너뜀
+        let existingPage = null;
+        if (fieldMapping.sourceUrl) {
+          existingPage = await notion.findPageBySourceUrl(
+            notionSecret,
+            account.notionDbId,
+            thread.url,
+            fieldMapping.sourceUrl
+          );
+        }
 
         if (existingPage) {
           result.skippedCount++;

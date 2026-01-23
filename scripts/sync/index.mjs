@@ -6,6 +6,7 @@
 import { loadAccounts, getNotionSecret, getSyncMode, validateConfig } from './config.mjs';
 import { runHourlySync } from './hourly-sync.mjs';
 import { runMidnightSync } from './midnight-sync.mjs';
+import { autoDetectFieldMapping } from './notion-client.mjs';
 
 /**
  * 메인 실행 함수
@@ -32,26 +33,33 @@ async function main() {
   console.log(`Accounts: ${accounts.length}`);
   console.log('-'.repeat(60));
 
-  // 기본 필드 매핑 (Extension 설정과 동일하게 유지)
-  const fieldMapping = {
-    title: 'Name',
-    content: 'Content',
-    createdAt: 'Created',
-    sourceUrl: 'URL',
-    views: 'Views',
-    likes: 'Likes',
-    replies: 'Replies',
-    reposts: 'Reposts',
-    quotes: 'Quotes',
-    shares: 'Shares',
-    username: 'Username'
-  };
-
   const results = [];
 
   // 각 계정에 대해 동기화 실행
   for (const account of accounts) {
     console.log(`\n>>> Processing account: ${account.name} (${account.id})`);
+
+    // 계정별로 Notion DB 스키마에서 필드 매핑 자동 감지
+    let fieldMapping;
+    try {
+      console.log(`[AutoDetect] Detecting field mapping for database: ${account.notionDbId}`);
+      fieldMapping = await autoDetectFieldMapping(notionSecret, account.notionDbId);
+    } catch (error) {
+      console.warn(`[AutoDetect] Failed to detect fields, using defaults:`, error.message);
+      fieldMapping = {
+        title: 'Name',
+        content: 'Content',
+        createdAt: 'Created',
+        sourceUrl: 'URL',
+        views: 'Views',
+        likes: 'Likes',
+        replies: 'Replies',
+        reposts: 'Reposts',
+        quotes: 'Quotes',
+        shares: 'Shares',
+        username: 'Username'
+      };
+    }
 
     let result;
     if (mode === 'midnight') {
