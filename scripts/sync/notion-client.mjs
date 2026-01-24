@@ -15,6 +15,7 @@ const FIELD_KEYWORDS = {
   content: ['content', 'text', 'body', '내용', '본문'],
   createdAt: ['created', 'date', 'time', '작성일', '날짜', '생성'],
   sourceUrl: ['url', 'link', 'source', '링크', '주소', '원본'],
+  threadId: ['thread id', 'threadid', '스레드 id', 'post id'],
   views: ['view', 'read', '조회', '읽음'],
   likes: ['like', 'heart', '좋아요', '하트'],
   replies: ['repl', 'comment', '댓글', '답글'],
@@ -95,6 +96,7 @@ export async function autoDetectFieldMapping(secret, databaseId) {
     content: null,
     createdAt: null,
     sourceUrl: null,
+    threadId: null,
     views: null,
     likes: null,
     replies: null,
@@ -143,7 +145,7 @@ export async function autoDetectFieldMapping(secret, databaseId) {
       continue;
     }
 
-    // rich_text 타입 필드 (content, username)
+    // rich_text 타입 필드 (content, username, threadId)
     if (propType === 'rich_text') {
       if (!mapping.content && FIELD_KEYWORDS.content.some(kw => nameLower.includes(kw))) {
         mapping.content = propName;
@@ -151,6 +153,10 @@ export async function autoDetectFieldMapping(secret, databaseId) {
       }
       if (!mapping.username && FIELD_KEYWORDS.username.some(kw => nameLower.includes(kw))) {
         mapping.username = propName;
+        continue;
+      }
+      if (!mapping.threadId && FIELD_KEYWORDS.threadId.some(kw => nameLower.includes(kw))) {
+        mapping.threadId = propName;
         continue;
       }
     }
@@ -378,6 +384,13 @@ function buildProperties(thread, fieldMapping, insights) {
     };
   }
 
+  // Thread ID (숫자)
+  if (fm.threadId && thread.id) {
+    properties[fm.threadId] = {
+      rich_text: [{ text: { content: String(thread.id) } }]
+    };
+  }
+
   return properties;
 }
 
@@ -431,4 +444,16 @@ export function extractUrlFromPage(page, urlField = 'URL') {
  */
 export function extractDateFromPage(page, dateField = 'Created') {
   return page.properties?.[dateField]?.date?.start || null;
+}
+
+/**
+ * 페이지에서 Thread ID 추출 (숫자 ID)
+ * @param {Object} page
+ * @param {string} threadIdField
+ * @returns {string|null}
+ */
+export function extractThreadIdFromPage(page, threadIdField) {
+  if (!threadIdField) return null;
+  const prop = page.properties?.[threadIdField];
+  return prop?.rich_text?.[0]?.plain_text || null;
 }

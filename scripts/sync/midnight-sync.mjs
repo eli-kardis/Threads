@@ -116,15 +116,25 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
     console.log(`[Midnight] Found ${existingPages.length} pages to update`);
 
     for (const page of existingPages) {
-      if (!fieldMapping.sourceUrl) continue;  // URL 필드 없으면 건너뜀
-      const pageUrl = notion.extractUrlFromPage(page, fieldMapping.sourceUrl);
-      if (!pageUrl) continue;
+      // 1. Notion에서 Thread ID 필드 읽기 (숫자 ID)
+      let threadId = notion.extractThreadIdFromPage(page, fieldMapping.threadId);
 
-      // URL에서 thread ID 추출 (permalink format: https://www.threads.net/@username/post/...)
-      const threadIdMatch = pageUrl.match(/\/post\/([^/?]+)/);
-      if (!threadIdMatch) continue;
+      // 2. Thread ID가 없으면 URL에서 추출 (fallback, 실패할 수 있음)
+      if (!threadId) {
+        if (!fieldMapping.sourceUrl) continue;
+        const pageUrl = notion.extractUrlFromPage(page, fieldMapping.sourceUrl);
+        if (!pageUrl) continue;
 
-      const threadId = threadIdMatch[1];
+        const threadIdMatch = pageUrl.match(/\/post\/([^/?]+)/);
+        threadId = threadIdMatch?.[1];
+      }
+
+      // 3. 숫자 ID 형식 검증
+      if (!threadId || !/^\d+$/.test(threadId)) {
+        const pageUrl = notion.extractUrlFromPage(page, fieldMapping.sourceUrl);
+        console.warn(`[Midnight] Invalid thread ID for ${pageUrl || page.id}, skipping`);
+        continue;
+      }
 
       try {
         const insights = await threads.getThreadInsights(account.threadsToken, threadId);
