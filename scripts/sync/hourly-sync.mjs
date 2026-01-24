@@ -1,7 +1,7 @@
 /**
  * 매시간 동기화 로직 (01:00~23:00 KST)
- * - 새 글 동기화
- * - 팔로워 수 임시 기록
+ * - 팔로워 수 기록
+ * - 새 글 동기화 (최근 10개)
  */
 
 import * as threads from './threads-client.mjs';
@@ -31,9 +31,9 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
     const userInfo = await threads.getUserInfo(account.threadsToken);
     console.log(`[Hourly] User: @${userInfo.username}`);
 
-    // 2. 팔로워 수 기록
+    // 2. 팔로워 수 기록 (대시보드용)
     try {
-      const accountInsights = await threads.getAccountInsights(account.threadsToken, 7);
+      const accountInsights = await threads.getAccountInsights(account.threadsToken, 1);
       result.followers = accountInsights.followers_count;
       console.log(`[Hourly] Followers: ${result.followers}`);
     } catch (err) {

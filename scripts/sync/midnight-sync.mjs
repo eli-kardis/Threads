@@ -1,9 +1,8 @@
 /**
  * 자정 특별 동기화 로직 (00:00 KST)
- * - 새 글 동기화
- * - 30일 인사이트 업데이트
- * - 90일 계정 인사이트
- * - 팔로워 확정 기록
+ * - 팔로워 수 기록
+ * - 새 글 동기화 (최근 10개)
+ * - 30일 이내 게시글 인사이트 업데이트
  */
 
 import * as threads from './threads-client.mjs';
@@ -26,8 +25,7 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
     skippedCount: 0,
     updatedCount: 0,
     errors: [],
-    followers: null,
-    accountInsights: null
+    followers: null
   };
 
   try {
@@ -35,16 +33,13 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
     const userInfo = await threads.getUserInfo(account.threadsToken);
     console.log(`[Midnight] User: @${userInfo.username}`);
 
-    // 2. 90일 계정 인사이트 조회
+    // 2. 팔로워 수 기록 (대시보드용)
     try {
-      result.accountInsights = await threads.getAccountInsights(
-        account.threadsToken,
-        SYNC_CONFIG.MIDNIGHT_ACCOUNT_DAYS
-      );
-      result.followers = result.accountInsights.followers_count;
-      console.log(`[Midnight] Account insights (90d): views=${result.accountInsights.views}, followers=${result.followers}`);
+      const accountInsights = await threads.getAccountInsights(account.threadsToken, 1);
+      result.followers = accountInsights.followers_count;
+      console.log(`[Midnight] Followers: ${result.followers}`);
     } catch (err) {
-      console.warn(`[Midnight] Failed to get account insights:`, err.message);
+      console.warn(`[Midnight] Failed to get followers:`, err.message);
     }
 
     // 3. 새 글 동기화 (매시간 동기화와 동일)

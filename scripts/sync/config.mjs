@@ -90,8 +90,7 @@ export const RATE_LIMITS = {
  * 동기화 설정
  */
 export const SYNC_CONFIG = {
-  HOURLY_POST_LIMIT: 30,           // 매시간 동기화: 최근 30개 확인
+  HOURLY_POST_LIMIT: 10,           // 동기화: 최근 10개 확인
   MIDNIGHT_INSIGHT_DAYS: 30,       // 자정: 30일 인사이트 업데이트
-  MIDNIGHT_ACCOUNT_DAYS: 90,       // 자정: 90일 계정 인사이트
   MAX_PAGINATION_PAGES: 50,        // 최대 페이지네이션
 };
