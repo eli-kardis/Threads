@@ -48,8 +48,12 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
 
     // 4. 각 게시글 동기화
     for (const thread of recentThreads) {
-      // 본인 글만 동기화
-      if (thread.username !== userInfo.username) {
+      // 본인 글만 동기화 (대소문자 무시)
+      const threadUsername = thread.username?.toLowerCase();
+      const userUsername = userInfo.username?.toLowerCase();
+
+      if (threadUsername && userUsername && threadUsername !== userUsername) {
+        console.log(`[Hourly] Skipped (username mismatch): thread="${thread.username}", user="${userInfo.username}"`);
         result.skippedCount++;
         continue;
       }
@@ -68,6 +72,7 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
         }
 
         if (existingPage) {
+          console.log(`[Hourly] Skipped (already exists): ${thread.id}`);
           result.skippedCount++;
           continue;
         }
