@@ -33,13 +33,59 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
     const userInfo = await threads.getUserInfo(account.threadsToken);
     console.log(`[Midnight] User: @${userInfo.username}`);
 
-    // 2. 팔로워 수 기록 (대시보드용)
+    // 2. 팔로워 수 기록 (Notion에 저장)
     try {
       const accountInsights = await threads.getAccountInsights(account.threadsToken, 1);
       result.followers = accountInsights.followers_count;
       console.log(`[Midnight] Followers: ${result.followers}`);
+
+      // Notion 팔로워 히스토리 DB에 저장
+      if (account.followersHistoryDbId && result.followers > 0) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        // 오늘 날짜 엔트리가 이미 있는지 확인
+        const existingEntry = await notion.findFollowersEntryByDate(
+          notionSecret,
+          account.followersHistoryDbId,
+          account.id,
+          today
+        );
+
+        if (existingEntry) {
+          console.log(`[Midnight] Followers entry already exists for ${today}`);
+        } else {
+          // 어제 팔로워 수 가져와서 변화량 계산
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+          const yesterdayEntry = await notion.findFollowersEntryByDate(
+            notionSecret,
+            account.followersHistoryDbId,
+            account.id,
+            yesterdayStr
+          );
+
+          const yesterdayFollowers = yesterdayEntry?.properties?.Followers?.number || 0;
+          const change = yesterdayFollowers > 0 ? result.followers - yesterdayFollowers : 0;
+
+          // 새 엔트리 생성
+          await notion.createFollowersHistoryEntry(
+            notionSecret,
+            account.followersHistoryDbId,
+            account.id,
+            today,
+            result.followers,
+            change
+          );
+
+          console.log(`[Midnight] Saved followers to Notion: ${result.followers} (${change >= 0 ? '+' : ''}${change})`);
+        }
+      } else if (!account.followersHistoryDbId) {
+        console.warn(`[Midnight] No followers history DB configured for ${account.id}`);
+      }
     } catch (err) {
-      console.warn(`[Midnight] Failed to get followers:`, err.message);
+      console.warn(`[Midnight] Failed to record followers:`, err.message);
     }
 
     // 3. 새 글 동기화 (매시간 동기화와 동일)

@@ -457,3 +457,118 @@ export function extractThreadIdFromPage(page, threadIdField) {
   const prop = page.properties?.[threadIdField];
   return prop?.rich_text?.[0]?.plain_text || null;
 }
+
+/**
+ * 팔로워 히스토리 엔트리 생성
+ * @param {string} secret - Notion API Secret
+ * @param {string} databaseId - 팔로워 히스토리 DB ID
+ * @param {string} accountId - 계정 ID
+ * @param {string} date - 날짜 (YYYY-MM-DD)
+ * @param {number} followers - 팔로워 수
+ * @param {number} change - 전날 대비 변화 (optional)
+ * @returns {Promise<Object>}
+ */
+export async function createFollowersHistoryEntry(secret, databaseId, accountId, date, followers, change = null) {
+  const properties = {
+    'Date': {
+      date: { start: date }
+    },
+    'Followers': {
+      number: followers
+    },
+    'Account': {
+      rich_text: [{ text: { content: accountId } }]
+    }
+  };
+
+  // 변화량이 있으면 추가
+  if (change !== null) {
+    properties['Change'] = {
+      number: change
+    };
+  }
+
+  const pageData = {
+    parent: { database_id: databaseId },
+    properties
+  };
+
+  return notionRequest('/pages', secret, {
+    method: 'POST',
+    body: JSON.stringify(pageData)
+  });
+}
+
+/**
+ * 특정 날짜의 팔로워 엔트리 찾기
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {string} accountId
+ * @param {string} date - YYYY-MM-DD
+ * @returns {Promise<Object|null>}
+ */
+export async function findFollowersEntryByDate(secret, databaseId, accountId, date) {
+  try {
+    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: {
+          and: [
+            {
+              property: 'Date',
+              date: { equals: date }
+            },
+            {
+              property: 'Account',
+              rich_text: { equals: accountId }
+            }
+          ]
+        },
+        page_size: 1
+      })
+    });
+
+    return response.results?.[0] || null;
+  } catch (error) {
+    console.warn(`Failed to find followers entry for ${date}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * 팔로워 히스토리 조회 (최근 N일)
+ * @param {string} secret
+ * @param {string} databaseId
+ * @param {string} accountId
+ * @param {number} limit - 최근 N일
+ * @returns {Promise<Array>}
+ */
+export async function getFollowersHistory(secret, databaseId, accountId, limit = 90) {
+  try {
+    const response = await notionRequest(`/databases/${databaseId}/query`, secret, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: {
+          property: 'Account',
+          rich_text: { equals: accountId }
+        },
+        sorts: [
+          {
+            property: 'Date',
+            direction: 'descending'
+          }
+        ],
+        page_size: Math.min(limit, 100)
+      })
+    });
+
+    return (response.results || []).map(page => ({
+      date: page.properties.Date?.date?.start || null,
+      count: page.properties.Followers?.number || 0,
+      change: page.properties.Change?.number || 0
+    }));
+  } catch (error) {
+    console.warn(`Failed to get followers history:`, error.message);
+    return [];
+  }
+}

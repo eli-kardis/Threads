@@ -293,9 +293,9 @@ async function handleMessage(message, sender) {
       return await storage.getThreadPageMappings();
 
     case 'GET_FOLLOWERS_HISTORY':
-      // 계정별 팔로워 히스토리 지원
+      // 계정별 팔로워 히스토리 지원 (Notion 우선, 로컬 스토리지 fallback)
       if (message.accountId) {
-        return await storage.getAccountFollowersHistory(message.accountId, message.limit || 90);
+        return await getFollowersHistoryForAccount(message.accountId, message.limit || 90);
       }
       return await storage.getFollowersHistory(message.limit || 90);
 
@@ -1115,12 +1115,23 @@ async function getThreadMappingsFromNotion(accountId) {
       };
     });
 
-    // 인사이트 합계 로깅 (디버그용)
-    const totalViews = mappings.reduce((sum, m) => sum + (m.insights?.views || 0), 0);
-    console.log(`[Dashboard] Mappings: ${mappings.length}, Total views: ${totalViews}`);
+    // 제목도 없고 인사이트도 전부 0인 빈 페이지 필터링
+    const validMappings = mappings.filter(m => {
+      if (m.title) return true;
+      const ins = m.insights || {};
+      return (ins.views || ins.likes || ins.replies || ins.reposts || ins.quotes || ins.shares) > 0;
+    });
 
-    log(`Found ${mappings.length} pages from Notion DB`);
-    return mappings;
+    if (validMappings.length < mappings.length) {
+      console.log(`[Dashboard] Filtered out ${mappings.length - validMappings.length} empty pages`);
+    }
+
+    // 인사이트 합계 로깅 (디버그용)
+    const totalViews = validMappings.reduce((sum, m) => sum + (m.insights?.views || 0), 0);
+    console.log(`[Dashboard] Mappings: ${validMappings.length}, Total views: ${totalViews}`);
+
+    log(`Found ${validMappings.length} valid pages from Notion DB (${mappings.length} total)`);
+    return validMappings;
   } catch (error) {
     console.error('Failed to get thread mappings from Notion:', error);
     return [];
@@ -1350,6 +1361,59 @@ async function recordDailyFollowers(accountId) {
   } catch (error) {
     console.error('Failed to record daily followers:', error);
   }
+}
+
+/**
+ * 계정별 팔로워 히스토리 가져오기 (Notion 우선, 로컬 스토리지 fallback)
+ * @param {string} accountId
+ * @param {number} limit
+ * @returns {Promise<Array>}
+ */
+async function getFollowersHistoryForAccount(accountId, limit = 90) {
+  try {
+    // 1. Notion에서 가져오기 시도
+    const [accounts, notionSecret] = await Promise.all([
+      storage.getAccounts(),
+      storage.getNotionSecret()
+    ]);
+
+    const account = accounts.find(a => a.id === accountId);
+
+    // Notion 팔로워 히스토리 DB가 설정되어 있으면 Notion에서 가져오기
+    if (account?.followersHistoryDbId && notionSecret) {
+      console.log(`[Followers] Fetching from Notion DB: ${account.followersHistoryDbId}`);
+
+      const pages = await notionApi.queryAllPages(notionSecret, account.followersHistoryDbId, {
+        limit: limit
+      });
+
+      // Account 필드로 필터링
+      const accountPages = pages.filter(page => {
+        const accountProp = page.properties?.Account?.rich_text?.[0]?.plain_text;
+        return accountProp === accountId;
+      });
+
+      // 날짜 내림차순 정렬 후 변환
+      const history = accountPages
+        .map(page => ({
+          date: page.properties?.Date?.date?.start || null,
+          count: page.properties?.Followers?.number || 0,
+          change: page.properties?.Change?.number || 0
+        }))
+        .filter(h => h.date)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, limit);
+
+      console.log(`[Followers] Found ${history.length} entries from Notion`);
+      return history;
+    }
+  } catch (error) {
+    console.warn(`[Followers] Failed to fetch from Notion, falling back to local:`, error.message);
+  }
+
+  // 2. Fallback: 로컬 스토리지에서 가져오기
+  console.log(`[Followers] Fetching from local storage`);
+  return await storage.getAccountFollowersHistory(accountId, limit);
 }
 
 /**

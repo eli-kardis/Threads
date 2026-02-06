@@ -28,4 +28,6 @@ jobs:
           NOTION_DB_PRIMARY: ${{ secrets.NOTION_DB_PRIMARY }}
           THREADS_TOKEN_SECONDARY: ${{ secrets.THREADS_TOKEN_SECONDARY }}
           NOTION_DB_SECONDARY: ${{ secrets.NOTION_DB_SECONDARY }}
+          FOLLOWERS_HISTORY_DB_PRIMARY: ${{ secrets.FOLLOWERS_HISTORY_DB_PRIMARY }}
+          FOLLOWERS_HISTORY_DB_SECONDARY: ${{ secrets.FOLLOWERS_HISTORY_DB_SECONDARY }}
         run: node sync/index.mjs --mode=midnight

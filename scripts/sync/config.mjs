@@ -16,6 +16,7 @@ export function loadAccounts() {
       name: 'Primary',
       threadsToken: process.env.THREADS_TOKEN_PRIMARY,
       notionDbId: process.env.NOTION_DB_PRIMARY,
+      followersHistoryDbId: process.env.FOLLOWERS_HISTORY_DB_PRIMARY || null,
     });
   }
 
@@ -26,6 +27,7 @@ export function loadAccounts() {
       name: 'Secondary',
       threadsToken: process.env.THREADS_TOKEN_SECONDARY,
       notionDbId: process.env.NOTION_DB_SECONDARY,
+      followersHistoryDbId: process.env.FOLLOWERS_HISTORY_DB_SECONDARY || null,
     });
   }
 

@@ -166,6 +166,7 @@ const elements = {
   accountName: document.getElementById('accountName'),
   accountUsername: document.getElementById('accountUsername'),
   accountNotionDbId: document.getElementById('accountNotionDbId'),
+  accountFollowersHistoryDbId: document.getElementById('accountFollowersHistoryDbId'),
   accountEditId: document.getElementById('accountEditId'),
   accountThreadsToken: document.getElementById('accountThreadsToken'),
   toggleAccountTokenVisibility: document.getElementById('toggleAccountTokenVisibility'),
@@ -1150,6 +1151,7 @@ function showAccountModal(account = null) {
   elements.accountName.value = account?.name || '';
   elements.accountUsername.value = account?.username || '';
   elements.accountNotionDbId.value = account?.notionDbId || '';
+  elements.accountFollowersHistoryDbId.value = account?.followersHistoryDbId || '';
   elements.accountThreadsToken.value = account?.threadsToken || '';
   elements.accountEditId.value = account?.id || '';
 
@@ -1172,6 +1174,7 @@ async function saveAccountFromModal() {
   const name = elements.accountName.value.trim();
   const username = elements.accountUsername.value.trim();
   const notionDbId = elements.accountNotionDbId.value.trim().replace(/-/g, ''); // 하이픈 제거
+  const followersHistoryDbId = elements.accountFollowersHistoryDbId.value.trim().replace(/-/g, ''); // 하이픈 제거
   const threadsToken = elements.accountThreadsToken.value.trim();
   const editId = elements.accountEditId.value;
 
@@ -1203,6 +1206,7 @@ async function saveAccountFromModal() {
       name,
       username: username.startsWith('@') ? username : `@${username}`,
       notionDbId,
+      followersHistoryDbId: followersHistoryDbId || null,
       threadsToken: threadsToken || existingAccount?.threadsToken || '',
       createdAt: existingAccount?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()

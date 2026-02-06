@@ -199,19 +199,37 @@ function setupEventListeners() {
 }
 
 /**
- * Notion에서 최신 데이터 다시 로드 (Threads API 호출 안 함)
- * 인사이트 업데이트는 GitHub Actions가 1시간마다 처리
+ * Threads API에서 최신 인사이트 가져와 Notion 업데이트 후 대시보드 새로고침
  */
 async function refreshAndReload() {
   console.log('refreshAndReload called for account:', currentAccountId);
   const refreshBtn = document.getElementById('refreshBtn');
-  refreshBtn.textContent = 'Notion에서 불러오는 중...';
+  refreshBtn.textContent = 'Threads API 호출 중...';
   refreshBtn.disabled = true;
 
   try {
-    // Notion에서 최신 데이터만 다시 로드 (forceRefresh로 캐시 무시)
+    // 1. Threads API에서 최신 인사이트 가져와서 Notion 업데이트
+    refreshBtn.textContent = '인사이트 업데이트 중...';
+    const refreshResult = await chrome.runtime.sendMessage({
+      type: 'REFRESH_ACCOUNT_INSIGHTS',
+      accountId: currentAccountId
+    });
+
+    if (!refreshResult.success) {
+      throw new Error(refreshResult.error || '인사이트 업데이트 실패');
+    }
+
+    console.log(`Refreshed ${refreshResult.refreshedCount} threads`);
+
+    // 2. Notion API 쓰기 반영 대기 후 재조회
+    refreshBtn.textContent = 'Notion 반영 대기 중...';
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 3. 업데이트된 Notion 데이터를 대시보드에 표시 (forceRefresh로 캐시 무시)
+    refreshBtn.textContent = 'Notion에서 불러오는 중...';
     await loadDashboardData(true);
-    refreshBtn.textContent = '✓ 새로고침 완료';
+
+    refreshBtn.textContent = `✓ ${refreshResult.refreshedCount}개 게시글 업데이트 완료`;
   } catch (error) {
     console.error('Refresh failed:', error);
     refreshBtn.textContent = '오류 발생';
