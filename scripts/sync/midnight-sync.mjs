@@ -39,7 +39,8 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
       result.followers = accountInsights.followers_count;
       console.log(`[Midnight] Followers: ${result.followers}`);
 
-      // Notion 팔로워 히스토리 DB에 저장
+      // Notion 팔로워 히스토리 DB에 저장 (Account 필드에 username 사용)
+      const accountLabel = userInfo.username || account.id;
       if (account.followersHistoryDbId && result.followers > 0) {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
@@ -47,7 +48,7 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
         const existingEntry = await notion.findFollowersEntryByDate(
           notionSecret,
           account.followersHistoryDbId,
-          account.id,
+          accountLabel,
           today
         );
 
@@ -62,7 +63,7 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
           const yesterdayEntry = await notion.findFollowersEntryByDate(
             notionSecret,
             account.followersHistoryDbId,
-            account.id,
+            accountLabel,
             yesterdayStr
           );
 
@@ -73,7 +74,7 @@ export async function runMidnightSync(account, notionSecret, fieldMapping = {}) 
           await notion.createFollowersHistoryEntry(
             notionSecret,
             account.followersHistoryDbId,
-            account.id,
+            accountLabel,
             today,
             result.followers,
             change

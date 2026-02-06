@@ -1381,16 +1381,18 @@ async function getFollowersHistoryForAccount(accountId, limit = 90) {
 
     // Notion 팔로워 히스토리 DB가 설정되어 있으면 Notion에서 가져오기
     if (account?.followersHistoryDbId && notionSecret) {
-      console.log(`[Followers] Fetching from Notion DB: ${account.followersHistoryDbId}`);
+      // username에서 @ 제거하여 매칭용 값 생성
+      const accountUsername = (account.username || '').replace(/^@/, '');
+      console.log(`[Followers] Fetching from Notion DB: ${account.followersHistoryDbId}, username: ${accountUsername}`);
 
       const pages = await notionApi.queryAllPages(notionSecret, account.followersHistoryDbId, {
         limit: limit
       });
 
-      // Account 필드로 필터링
+      // Account 필드로 필터링 (username 매칭)
       const accountPages = pages.filter(page => {
-        const accountProp = page.properties?.Account?.rich_text?.[0]?.plain_text;
-        return accountProp === accountId;
+        const accountProp = page.properties?.Account?.rich_text?.[0]?.plain_text || '';
+        return accountProp === accountUsername || accountProp === accountId;
       });
 
       // 날짜 내림차순 정렬 후 변환
