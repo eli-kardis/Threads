@@ -22,8 +22,7 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
     account: account.id,
     syncedCount: 0,
     skippedCount: 0,
-    errors: [],
-    followers: null
+    errors: []
   };
 
   try {
@@ -31,22 +30,13 @@ export async function runHourlySync(account, notionSecret, fieldMapping = {}) {
     const userInfo = await threads.getUserInfo(account.threadsToken);
     console.log(`[Hourly] User: @${userInfo.username}`);
 
-    // 2. 팔로워 수 기록 (대시보드용)
-    try {
-      const accountInsights = await threads.getAccountInsights(account.threadsToken, 1);
-      result.followers = accountInsights.followers_count;
-      console.log(`[Hourly] Followers: ${result.followers}`);
-    } catch (err) {
-      console.warn(`[Hourly] Failed to get followers:`, err.message);
-    }
-
-    // 3. 최근 게시글 조회
+    // 2. 최근 게시글 조회
     const recentThreads = await threads.getAllUserThreads(account.threadsToken, {
       limit: SYNC_CONFIG.HOURLY_POST_LIMIT
     });
     console.log(`[Hourly] Found ${recentThreads.length} recent threads`);
 
-    // 4. 각 게시글 동기화
+    // 3. 각 게시글 동기화
     for (const thread of recentThreads) {
       // 본인 글만 동기화 (대소문자 무시)
       const threadUsername = thread.username?.toLowerCase();
