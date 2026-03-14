@@ -19,6 +19,14 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+*.zip
+
+# Media files
+*.mov
+*.mp4
+
+# Dev logs (use git log instead)
+dev-logs/
 
 # Icon generator (development only)
 create-icons.html
