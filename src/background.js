@@ -1439,7 +1439,7 @@ async function getFollowersHistoryForAccount(accountId, limit = 90) {
  * @returns {Promise<Object>}
  */
 async function getAccountFollowersChangeStats(accountId) {
-  const history = await storage.getAccountFollowersHistory(accountId, 365);
+  const history = await getFollowersHistoryForAccount(accountId, 365);
 
   // 현재 팔로워 수는 해당 계정의 토큰으로 조회
   let currentFromApi = 0;

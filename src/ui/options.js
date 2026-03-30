@@ -393,7 +393,7 @@ async function startThreadsOAuthFlow() {
       throw new Error(tokenData.error.message || '토큰 교환 실패');
     }
 
-    // 토큰 저장
+    // 토큰 저장 (전역)
     await chrome.storage.local.set({
       threadsAccessToken: tokenData.access_token,
       threadsUserId: tokenData.user_id
@@ -403,6 +403,23 @@ async function startThreadsOAuthFlow() {
     if (tokenData.expires_in) {
       const expiresAt = Date.now() + (tokenData.expires_in * 1000);
       await chrome.storage.local.set({ threadsTokenExpiresAt: expiresAt });
+    }
+
+    // 현재 선택된 계정에도 토큰 동기화
+    try {
+      const stored = await chrome.storage.local.get(['accounts', 'currentAccount']);
+      const accounts = stored.accounts || [];
+      const currentId = stored.currentAccount;
+      if (currentId && accounts.length > 0) {
+        const account = accounts.find(a => a.id === currentId);
+        if (account) {
+          account.threadsToken = tokenData.access_token;
+          account.updatedAt = new Date().toISOString();
+          await chrome.storage.local.set({ accounts });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to sync token to account:', err);
     }
 
     // UI 업데이트
