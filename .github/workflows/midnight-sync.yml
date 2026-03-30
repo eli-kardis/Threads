@@ -20,13 +20,22 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Refresh Threads Tokens
+        working-directory: scripts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          THREADS_TOKEN_PRIMARY: ${{ secrets.THREADS_TOKEN_PRIMARY }}
+          THREADS_TOKEN_SECONDARY: ${{ secrets.THREADS_TOKEN_SECONDARY }}
+        run: node sync/token-refresh.mjs
+
       - name: Run Midnight Sync
         working-directory: scripts
         env:
           NOTION_SECRET: ${{ secrets.NOTION_SECRET }}
           THREADS_TOKEN_PRIMARY: ${{ secrets.THREADS_TOKEN_PRIMARY }}
-          NOTION_DB_PRIMARY: ${{ secrets.NOTION_DB_PRIMARY }}
           THREADS_TOKEN_SECONDARY: ${{ secrets.THREADS_TOKEN_SECONDARY }}
+          NOTION_DB_PRIMARY: ${{ secrets.NOTION_DB_PRIMARY }}
           NOTION_DB_SECONDARY: ${{ secrets.NOTION_DB_SECONDARY }}
           FOLLOWERS_HISTORY_DB_PRIMARY: ${{ secrets.FOLLOWERS_HISTORY_DB_PRIMARY }}
           FOLLOWERS_HISTORY_DB_SECONDARY: ${{ secrets.FOLLOWERS_HISTORY_DB_SECONDARY }}

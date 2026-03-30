@@ -736,12 +736,26 @@ async function doSyncFromDate(fromDate) {
           continue;
         }
 
-        // 이미 동기화된 게시글인지 확인
+        // 이미 동기화된 게시글인지 확인 (로컬 + Notion 이중 체크)
         const alreadySynced = await storage.isThreadSynced(thread.id);
         if (alreadySynced) {
-          log(`Thread ${thread.id} already synced, skipping`);
+          log(`Thread ${thread.id} already synced (local), skipping`);
           skippedCount++;
           continue;
+        }
+
+        // Notion DB에서 URL 기반 중복 체크 (로컬 storage 유실 대비)
+        if (thread.url && settings.notionDatabaseId) {
+          const urlField = settings.fieldMapping?.sourceUrl || '원본 URL';
+          const existingPage = await notionApi.findPageBySourceUrl(
+            settings.notionSecret, settings.notionDatabaseId, thread.url, urlField
+          );
+          if (existingPage) {
+            log(`Thread ${thread.id} already exists in Notion, skipping`);
+            await storage.addSyncedThreadId(thread.id);
+            skippedCount++;
+            continue;
+          }
         }
 
         const result = await syncThreadToNotion(thread, settings);
@@ -1386,7 +1400,8 @@ async function getFollowersHistoryForAccount(accountId, limit = 90) {
       console.log(`[Followers] Fetching from Notion DB: ${account.followersHistoryDbId}, username: ${accountUsername}`);
 
       const pages = await notionApi.queryAllPages(notionSecret, account.followersHistoryDbId, {
-        limit: limit
+        limit: limit,
+        dateField: 'Date'
       });
 
       // Account 필드로 필터링 (username 매칭)

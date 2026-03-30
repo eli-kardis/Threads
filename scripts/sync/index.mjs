@@ -101,13 +101,22 @@ async function main() {
   console.log(`Total Errors: ${totalErrors}`);
   console.log('='.repeat(60));
 
-  // 에러가 있으면 종료 코드 1
-  if (totalErrors > 0) {
-    console.log('\nSync completed with errors');
+  // 모든 계정이 fatal error인 경우에만 실패 처리
+  const fatalCount = results.filter(r => r.errors?.some(e => e.fatal)).length;
+  const accountCount = results.length;
+
+  if (fatalCount === accountCount) {
+    console.log('\nAll accounts failed');
     process.exit(1);
   }
 
-  console.log('\nSync completed successfully');
+  if (fatalCount > 0) {
+    console.log(`\nSync completed (${fatalCount}/${accountCount} account(s) failed)`);
+  } else if (totalErrors > 0) {
+    console.log(`\nSync completed with ${totalErrors} non-fatal error(s)`);
+  } else {
+    console.log('\nSync completed successfully');
+  }
 }
 
 // 실행
